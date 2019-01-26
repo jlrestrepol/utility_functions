@@ -625,7 +625,9 @@ def interactive_histograms(
     
     # check the input
     for key in keys:
-        if (key not in adata.obs.keys()) and (key not in adata.var.keys()):
+        if key not in adata.obs.keys() and \
+           key not in adata.var.keys() and \
+           key not in adata.var_names:
             raise ValueError('The key {!r} does not exist in adata.obs or adata.var'.format(key))
             
     # initialise lists
@@ -646,6 +648,8 @@ def interactive_histograms(
             hist, edges = np.histogram(adata.obs[key], density=True, bins=bins)
         elif key in adata.var.keys():
             hist, edges = np.histogram(adata.var[key], density=True, bins=bins)
+        else:
+            hist, edges = np.histogram(adata[:, key].X, density=True, bins=bins)
             
         # create figure
         fig = figure(tools=tools, title=key) 
@@ -663,6 +667,132 @@ def interactive_histograms(
     show(gridplot(figures, plot_width=400, plot_height=400))
 
 
+def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
+    """
+    Scatter plot of projected data and targets in groups.
+    Params
+    --------
+    adata: AnnData Object
+        Annotated data object
+    pcs: list, optional (default: `[1, 2]`)
+        projections to use
+    groups: list, optional (default: `["n_counts"]`)
+        keys in adata.obs_keys() or adata.var_name where targets are stored
+    
+    Returns
+    --------
+    None
+    """
+
+    if not isinstance(pcs, type(np.array)):
+        pcs = np.array(pcs)
+
+    ys = [adata.obs[g] if g in adata.obs_keys() else adata[:, g].X if g in adata.var_names else None
+          for g in groups]
+    
+    ok = tuple(map(lambda y: y is not None, ys))
+    if not all(ok):
+        raise ValueError(f'Unknown groups: {np.array(groups)[~np.array(ok)]}.')
+        
+    proj = adata.obsm['X_pca'][:, pcs - 1]
+    
+    for group, y in zip(groups, ys):
+        for i, pc in enumerate(pcs):
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+
+            ax.set_title(f'PC_{pc}')
+            ax.set_ylabel(group)
+
+            ax.scatter(proj[:, i], y)
 
 
+def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
+    """
+    Fit linear models and plot R\u00B2 scores
+    using projected data and targets in groups.
+    Params
+    --------
+    adata: AnnData Object
+        Annotated data object
+    pcs: list, optional (default: `[1, 2]`)
+        projections to use
+    groups: list, optional (default: `["n_counts"]`)
+        keys in adata.obs_keys() or adata.var_name where targets are stored
+    take: int, optional (default: `None`)
+        number of highest R\u00B2 scores to plot
+    
+    Returns
+    --------
+    None
+    """
 
+    from sklearn.linear_model import LinearRegression
+
+    if not isinstance(pcs, type(np.array)):
+        pcs = np.array(pcs)
+        
+    if groups is None:
+        groups = np.concatenate([adata.var_names, adata.obs_keys()])
+
+    reg = LinearRegression()
+    
+    proj = adata.obsm['X_pca']
+    proj = np.expand_dims(proj, axis=2)  # linreg. requires this
+    
+    scoress = (sorted((reg.fit(x, y).score(x, y)
+                          for x, y in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g])
+                                       for g in groups)), reverse=True)[:take]
+                  for i in range(pcs.shape[0]))
+    
+    len_g = len(groups)
+    x_ticks = np.arange(0, len_g, max(1, min(10, len_g // 10)))
+    
+    for pc, scores in zip(pcs, scoress):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        
+        for ix, (group, score) in enumerate(zip(groups, scores)):
+            ax.annotate(f'{group}', xy=(ix, score), xycoords='data',
+                        rotation=90, ha='left', va='bottom')
+            
+        ax.set_title(f'PC_{pc}')
+        ax.xaxis.set_ticks(x_ticks)
+        
+        plt.xlabel('rank')
+        plt.ylabel('R\u00B2 score')
+        
+        plt.xlim(-1, len_g)
+        plt.ylim(0, 1)
+        plt.grid(visible=False)
+        
+        plt.grid()
+        plt.show()
+
+
+def simple_de_matching(adata, markers, n_genes=100):
+    """
+    Print markers that that match genes found in
+    differential expression test for each cluster.
+
+    Params
+    --------
+    adata: AnnData Object
+        Annotated data object
+    markers: dict
+        dictionary of known marker genes, e.g. for a specific cell type, each with a key
+    n_genes: int, optional (default: `10`)
+        number of genes to consider
+    
+    Returns
+    --------
+    None
+    """
+    gene_groups = adata.uns['rank_genes_groups']
+    de_genes = pd.DataFrame(data=gene_groups['names']).head(n_genes)
+    print(de_genes.head(10))
+
+    matches = check_markers(de_genes, markers)
+    for key, value in matches.items():
+        print(f'-- cluster {key} --')
+        print(value)
