@@ -628,7 +628,7 @@ def interactive_histograms(
         if key not in adata.obs.keys() and \
            key not in adata.var.keys() and \
            key not in adata.var_names:
-            raise ValueError('The key {!r} does not exist in adata.obs or adata.var'.format(key))
+            raise ValueError(f'The key `{key}` does not exist in adata.obs, adata.var or adata.var_names.')
             
     # initialise lists
     figures = []
@@ -737,7 +737,7 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
 
     reg = LinearRegression()
     
-    proj = adata.obsm['X_pca']
+    proj = adata.obsm['X_pca'][:, pcs - 1]
     proj = np.expand_dims(proj, axis=2)  # linreg. requires this
     
     scoress = (sorted((reg.fit(x, y).score(x, y)
