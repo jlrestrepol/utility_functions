@@ -591,11 +591,10 @@ def de_results(adata, keys = ['names', 'scores'], cluster_key = 'louvain', n_gen
     
     return table
 
-def interactive_histograms(
-                           adata, 
-                           keys=['n_counts', 'n_genes'], 
+def interactive_histograms(adata, keys=['n_counts', 'n_genes'], 
                            bins=100, 
-                           tools="pan,reset, wheel_zoom, save"):
+                           tools="pan,reset, wheel_zoom, save",
+                           *args, **kwargs):
     """Utility function to plot count distributions\
     
     Uses the bokey library to create interactive histograms, which can be used
@@ -652,7 +651,7 @@ def interactive_histograms(
             hist, edges = np.histogram(adata[:, key].X, density=True, bins=bins)
             
         # create figure
-        fig = figure(tools=tools, title=key) 
+        fig = figure(*args, tools=tools, title=kwargs.get('title', key))
         fig.quad(top = hist, 
                bottom = 0, 
                left = edges[:-1], 
