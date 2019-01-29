@@ -12,6 +12,41 @@ This contains functions for:
 * plotting marker genes with support for regular expressions
 """
 
+_inter_hist_js_code="""
+    // here is where original data is stored
+    var x = orig.data['values'];
+
+    x = x.sort((a, b) => a - b);
+    var n_bins = bins.value;
+    var bin_size = (x[x.length - 1] - x[0]) / n_bins;
+
+    var hist = new Array(n_bins).fill().map((_, i) => { return 0; });
+    var l_edges = new Array(n_bins).fill().map((_, i) => { return x[0] + bin_size * i; });
+    var r_edges = new Array(n_bins).fill().map((_, i) => { return x[0] + bin_size * (i + 1); });
+
+    // create the histogram
+    for (var i = 0; i < x.length; i++) {
+        for (var j = 0; j < r_edges.length; j++) {
+            if (x[i] <= r_edges[j]) {
+                hist[j] += 1;
+                break;
+            }
+        }
+    }
+
+    // make it a density
+    var sum = hist.reduce((a, b) => a + b, 0);
+    var deltas = r_edges.map((c, i) => { return c - l_edges[i]; });
+    // just like in numpy
+    hist = hist.map((c, i) => { return c / deltas[i] / sum; });
+
+    source.data['hist'] = hist;
+    source.data['l_edges'] = l_edges;
+    source.data['r_edges'] = r_edges;
+
+    source.change.emit();
+"""
+
 def score_cell_cycle(adata, path, gene_symbols = 'none'):
     """
     Computes cell cycle scores. This is usually done on batch corrected data.
@@ -591,6 +626,7 @@ def de_results(adata, keys = ['names', 'scores'], cluster_key = 'louvain', n_gen
     
     return table
 
+
 def interactive_histograms(adata, keys=['n_counts', 'n_genes'], 
                            bins=100, 
                            tools="pan,reset, wheel_zoom, save",
@@ -664,6 +700,104 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         
     # show the plots
     show(gridplot(figures, plot_width=400, plot_height=400))
+
+
+def interactive_histograms_v2(adata, keys=['n_counts', 'n_genes'],
+                              bins=100, min_bins=1, max_bins=1000,
+                              tools='pan,reset, wheel_zoom, save',
+                              *args, **kwargs):
+    """Utility function to plot count distributions\
+
+    Uses the bokey library to create interactive histograms, which can be used
+    e.g. to set filtering thresholds.
+
+    Params
+    --------
+    adata: AnnData Object
+        Annotated data object
+    keys: list, optional (default: `["n_counts", "n_genes"]`)
+        keys in adata.obs or adata.var where the distibutions are stored
+    bins: int, optional (default: `100`)
+        number of bins used for plotting
+    min_bins: int, optional (default: `1`)
+        minimum number of bins possible
+    max_bins: int, optional (default: `1000`)
+        maximum number of bins possible
+    tools: str, optional (default: `"pan,reset, wheel_zoom, save"`)
+        palette of interactive tools for the user
+
+    Returns
+    --------
+    None
+    """
+
+    # import the library
+    from bokeh.plotting import figure, show, ColumnDataSource
+    from bokeh.models import CustomJS, Slider
+    from bokeh.io import output_notebook
+    from bokeh.layouts import layout, column
+
+    from numpy import array_split, ceil
+    output_notebook()
+
+    if min_bins < 1:
+        raise ValueError(f'Expected min_bins >= 1, got min_bins={min_bins}.')
+    if max_bins < min_bins:
+        raise ValueError(f'Expected min_bins <= max_bins, got min_bins={min_bins}, max_bins={max_bins}.')
+    if not (bins >= min_bins and bins <= max_bins):
+        raise ValueError(f'Expected min_bins <= bins <= max_bins, got min_bins={min_bins}, bins={bins}, max_bins={max_bins}.')
+
+    # check the input
+    for key in keys:
+        if key not in adata.obs.keys() and \
+           key not in adata.var.keys() and \
+           key not in adata.var_names:
+            raise ValueError(f'The key `{key}` does not exist in adata.obs, adata.var or adata.var_names.')
+
+    # initialize list of slider, figure pairs
+    cols = []
+    # crate the histograms and the figures
+    for i, key in enumerate(keys):
+        # create histogram
+        if key in adata.obs.keys():
+            orig = adata.obs[key]
+            hist, edges = np.histogram(orig, density=True, bins=bins)
+        elif key in adata.var.keys():
+            orig = adata.var[key]
+            hist, edges = np.histogram(orig, density=True, bins=bins)
+        else:
+            orig = adata[:, key].X
+            hist, edges = np.histogram(orig, density=True, bins=bins)
+
+        # original data, used for recalculation of histogram in JS code
+        orig = ColumnDataSource(data=dict(values=orig))
+        # data that we update in JS code
+        source = ColumnDataSource(data=dict(hist=hist, l_edges=edges[:-1], r_edges=edges[1:]))
+
+        # create figure
+        fig = figure(*args, tools=tools, title=kwargs.get('title', key))
+        fig.quad(source=source, top='hist', bottom=0,
+                 left='l_edges', right='r_edges',
+                 line_color="#555555")
+        fig.xaxis.axis_label = key
+        fig.yaxis.axis_label = 'normalised frequency'
+        fig.width = 400
+        fig.height = 400
+
+        # create callback and slider
+        callback = CustomJS(args=dict(source=source, orig=orig), code=_inter_hist_js_code)
+        slider = Slider(start=min_bins, end=max_bins, value=bins, step=1,
+                        title='Bins', callback=callback)
+        callback.args['bins'] = slider
+
+        cols.append(column(slider, fig))
+
+    # transform list of pairs of figures and sliders into list of lists, where
+    # each sublist has length <= 2
+    # note that bokeh does not like np.arrays
+    grid = list(map(list, array_split(cols, ceil(len(cols) / 2))))
+
+    show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
 def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
