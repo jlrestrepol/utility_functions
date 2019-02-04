@@ -844,7 +844,8 @@ def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
             ax.scatter(proj[:, i], y)
 
 
-def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
+# def corr_ann(adata, obs_keys=['n_counts'], basis='pca', components=[0, 1]):
+def plot_r2_scores(adata, groups=['n_counts'], basis='pca', components=[0, 1], take=None):
     """
     Fit linear models and plot R\u00B2 scores
     using projected data and targets in groups.
@@ -866,26 +867,26 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
 
     from sklearn.linear_model import LinearRegression
 
-    if not isinstance(pcs, type(np.array)):
-        pcs = np.array(pcs)
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
         
     if groups is None:
         groups = np.concatenate([adata.var_names, adata.obs_keys()])
 
     reg = LinearRegression()
     
-    proj = adata.obsm['X_pca'][:, pcs - 1]
+    proj = adata.obsm['X_' + basis][:, components]
     proj = np.expand_dims(proj, axis=2)  # linreg. requires this
     
     scoress = (sorted((reg.fit(x, y).score(x, y)
                           for x, y in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g])
                                        for g in groups)), reverse=True)[:take]
-                  for i in range(pcs.shape[0]))
+                  for i in range(components.shape[0]))
     
     len_g = len(groups)
     x_ticks = np.arange(0, len_g, max(1, min(10, len_g // 10)))
     
-    for pc, scores in zip(pcs, scoress):
+    for pc, scores in zip(components, scoress):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
@@ -893,7 +894,7 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
             ax.annotate(f'{group}', xy=(ix, score), xycoords='data',
                         rotation=90, ha='left', va='bottom')
             
-        ax.set_title(f'PC_{pc}')
+        ax.set_title(f'{basis}_{pc + 1}')
         ax.xaxis.set_ticks(x_ticks)
         
         plt.xlabel('rank')
