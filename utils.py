@@ -3,7 +3,6 @@ import numpy as np
 import scanpy.api as sc
 import matplotlib.pyplot as plt
 import re
-from pybiomart import Server 
 
 """
 This contains functions for:
@@ -329,7 +328,7 @@ def map_to_mgi(adata, copy = False):
     --------
     adata: AnnData object
     """
-    
+    from pybiomart import Server
     # connest to the biomart server
     server = Server(host='http://www.ensembl.org')
     
@@ -406,7 +405,7 @@ def compare_distr(adata, key, groupby = 'batch', **kwags):
     plt.show()
     
     
-def print_numbers(adata, groupby = 'batch'):
+def print_numbers(adata, groupby=None):
     """
     Utility function to print cell numbers per batch
     
@@ -416,24 +415,29 @@ def print_numbers(adata, groupby = 'batch'):
     --------
     adata : AnnData object
         Annotated data matrix
-    groupby : `str`, optional (defalut: `"batch"`)
+    groupby : `str`, optional (defalut: `None`)
         Key to categorical annotation in adata.obs
     """
-    
-    # get the levels
-    levels = adata.obs[groupby].cat.categories
-    
-    # print number of cell per batch
-    for level in levels:
-        n_cells = adata[adata.obs[groupby] == level].n_obs
-        print('{} cells in batch {}'.format(n_cells, level))
+
+    # check wether batch key exists
+    if groupby is not None:
+        if groupby not in adata.obs.keys():
+            raise ValueError('Cannot find the key {!r} in adata.obs'.format(groupgy))
+        else:
+            # get the levels
+            levels = adata.obs[groupby].cat.categories
+
+            # print number of cell per batch
+            for level in levels:
+                n_cells = adata[adata.obs[groupby] == level].n_obs
+                print('{} cells in batch {}'.format(n_cells, level))
     
     # number of genes
     print('Total: {} cells, {} genes'.\
           format(adata.n_obs, adata.n_vars))
     
     
-def corr_ann(adata, obs_keys=['n_counts'], basis='pca', components=[0, 1]):
+def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
     """
     Utility function to correlate continious annoations against embedding
     
@@ -444,11 +448,11 @@ def corr_ann(adata, obs_keys=['n_counts'], basis='pca', components=[0, 1]):
     --------
     adata : AnnData object
         Annotatied data matrix
-    obs_keys : `list`, optional (default: `["n_counts"]`)
+    obs_keys : `str`, optional (default: `[n_counts, n_genes]`)
         Key for the continious annotaiton to use
     basis : `str`, optional (default: `"pca"`)
         Key to the basis stored in adata.obsm
-    component : `list`, optional (default: `[1, 2]`)
+    components : `int`, optional (default: `[1, 2]`)
         Component of the embedding to use
         
     
@@ -459,25 +463,25 @@ def corr_ann(adata, obs_keys=['n_counts'], basis='pca', components=[0, 1]):
     
     # check input
     if 'X_' + basis not in adata.obsm.keys():
-        raise ValueError('You have not computed this basis yet')
-    for obs_key in obs_keys:
-        if obs_key not in adata.obs.keys():
-            raise ValueError('The key \'{}\' does not exist in adata.obs'.format(obs_key))
+        raise ValueError('You have not computd this basis yet')
+    for key in obs_keys:
+        if key not in adata.obs.keys():
+            raise ValueError('The key {!r} does not exist in adata.obs'.format(obs_key))
         
-    
-    # get the continious annotation
-    for obs_key in obs_keys:
-        ann = adata.obs[obs_key]
+    # get the embedding coordinate
+    X_em = adata.obsm['X_' + basis]
 
-        for component in components:
-            # get the embedding coordinate
-            X_em = adata.obsm['X_' + basis]
-            X_em = X_em[:, component]
-        
+    for key in obs_keys:
+        for comp in components:
+            coordinates = X_em[:, comp-1]
+
+            # get the continious annotation
+            ann = adata.obs[key]
+
             # compute the correlation coefficient
-            corr = np.corrcoef(X_em, ann)[0, 1]
-            print('Correlation between \'{}\' and component \'{}\' of basis \'{}\' is {:.2f}.'.format(obs_key, 
-                component + 1, basis, corr))
+            corr = np.corrcoef(coordinates, ann)[0, 1]
+            print('Correlation between {!r} and component {!r} of basis {!r} is {:.2f}.'.format(key,
+                comp, basis, corr))
 
 
 # quantify the batch effect quickly using the silhouette coefficient
@@ -844,8 +848,7 @@ def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
             ax.scatter(proj[:, i], y)
 
 
-# def corr_ann(adata, obs_keys=['n_counts'], basis='pca', components=[0, 1]):
-def plot_r2_scores(adata, groups=['n_counts'], basis='pca', components=[0, 1], take=None):
+def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
     """
     Fit linear models and plot R\u00B2 scores
     using projected data and targets in groups.
@@ -867,26 +870,26 @@ def plot_r2_scores(adata, groups=['n_counts'], basis='pca', components=[0, 1], t
 
     from sklearn.linear_model import LinearRegression
 
-    if not isinstance(components, type(np.array)):
-        components = np.array(components)
+    if not isinstance(pcs, type(np.array)):
+        pcs = np.array(pcs)
         
     if groups is None:
         groups = np.concatenate([adata.var_names, adata.obs_keys()])
 
     reg = LinearRegression()
     
-    proj = adata.obsm['X_' + basis][:, components]
+    proj = adata.obsm['X_pca'][:, pcs - 1]
     proj = np.expand_dims(proj, axis=2)  # linreg. requires this
     
     scoress = (sorted((reg.fit(x, y).score(x, y)
                           for x, y in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g])
                                        for g in groups)), reverse=True)[:take]
-                  for i in range(components.shape[0]))
+                  for i in range(pcs.shape[0]))
     
     len_g = len(groups)
     x_ticks = np.arange(0, len_g, max(1, min(10, len_g // 10)))
     
-    for pc, scores in zip(components, scoress):
+    for pc, scores in zip(pcs, scoress):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
@@ -894,7 +897,7 @@ def plot_r2_scores(adata, groups=['n_counts'], basis='pca', components=[0, 1], t
             ax.annotate(f'{group}', xy=(ix, score), xycoords='data',
                         rotation=90, ha='left', va='bottom')
             
-        ax.set_title(f'{basis}_{pc + 1}')
+        ax.set_title(f'PC_{pc}')
         ax.xaxis.set_ticks(x_ticks)
         
         plt.xlabel('rank')
