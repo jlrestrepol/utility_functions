@@ -3,7 +3,6 @@ import numpy as np
 import scanpy.api as sc
 import matplotlib.pyplot as plt
 import re
-from pybiomart import Server 
 
 """
 This contains functions for:
@@ -329,7 +328,7 @@ def map_to_mgi(adata, copy = False):
     --------
     adata: AnnData object
     """
-    
+    from pybiomart import Server
     # connest to the biomart server
     server = Server(host='http://www.ensembl.org')
     
