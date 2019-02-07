@@ -463,7 +463,7 @@ def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1
     
     # check input
     if 'X_' + basis not in adata.obsm.keys():
-        raise ValueError('You have not computd this basis yet')
+        raise ValueError('You have not computed this basis yet')
     for key in obs_keys:
         if key not in adata.obs.keys():
             raise ValueError('The key {!r} does not exist in adata.obs'.format(obs_key))
@@ -635,85 +635,10 @@ def de_results(adata, keys = ['names', 'scores'], cluster_key = 'louvain', n_gen
     return table
 
 
-def interactive_histograms(adata, keys=['n_counts', 'n_genes'], 
-                           bins=100, 
-                           tools="pan,reset, wheel_zoom, save",
+def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
+                           bins=100, min_bins=1, max_bins=1000,
+                           tools='pan,reset, wheel_zoom, save',
                            *args, **kwargs):
-    """Utility function to plot count distributions\
-    
-    Uses the bokey library to create interactive histograms, which can be used
-    e.g. to set filtering thresholds.
-    
-    Params
-    --------
-    adata: AnnData Object
-        Annotated data object
-    keys: list, optional (default: `["n_counts", "n_genes"]`)
-        keys in adata.obs or adata.var where the distibutions are stored
-    bins: int, optional (default: `100`)
-        number of bins used for plotting
-    tools: str, optional (default: `"pan,reset, wheel_zoom, save"`)
-        palette of interactive tools for the user
-    
-    Returns
-    --------
-    Nothing
-    """
-    
-    # import the library
-    from bokeh.plotting import figure, show
-    from bokeh.io import output_notebook
-    from bokeh.layouts import gridplot
-    output_notebook()
-    
-    # check the input
-    for key in keys:
-        if key not in adata.obs.keys() and \
-           key not in adata.var.keys() and \
-           key not in adata.var_names:
-            raise ValueError(f'The key `{key}` does not exist in adata.obs, adata.var or adata.var_names.')
-            
-    # initialise lists
-    figures = []
-    
-    # crate the histograms and the figures
-    for i, key in enumerate(keys):
-        
-        # check wether a new sub-list must be opened
-        if i == 0:
-            current_list = []
-        elif i%2 == 0:
-            figures.append(current_list)
-            current_list = []
-        
-        # create histogram
-        if key in adata.obs.keys():
-            hist, edges = np.histogram(adata.obs[key], density=True, bins=bins)
-        elif key in adata.var.keys():
-            hist, edges = np.histogram(adata.var[key], density=True, bins=bins)
-        else:
-            hist, edges = np.histogram(adata[:, key].X, density=True, bins=bins)
-            
-        # create figure
-        fig = figure(*args, tools=tools, title=kwargs.get('title', key))
-        fig.quad(top = hist, 
-               bottom = 0, 
-               left = edges[:-1], 
-               right = edges[1:], 
-               line_color = "#555555")
-        fig.xaxis.axis_label = key
-        fig.yaxis.axis_label = 'normalised frequency'
-        current_list.append(fig)
-    figures.append(current_list)
-        
-    # show the plots
-    show(gridplot(figures, plot_width=400, plot_height=400))
-
-
-def interactive_histograms_v2(adata, keys=['n_counts', 'n_genes'],
-                              bins=100, min_bins=1, max_bins=1000,
-                              tools='pan,reset, wheel_zoom, save',
-                              *args, **kwargs):
     """Utility function to plot count distributions\
 
     Uses the bokey library to create interactive histograms, which can be used
@@ -848,7 +773,8 @@ def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
             ax.scatter(proj[:, i], y)
 
 
-def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
+def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
+                   basis='pca', take=None):
     """
     Fit linear models and plot R\u00B2 scores
     using projected data and targets in groups.
@@ -856,10 +782,12 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
     --------
     adata: AnnData Object
         Annotated data object
-    pcs: list, optional (default: `[1, 2]`)
-        projections to use
-    groups: list, optional (default: `["n_counts"]`)
+    components: list, optional (default: `[1, 2]`)
+        components to use
+    groups: list, optional (default: `["n_counts", "n_genes"]`)
         keys in adata.obs_keys() or adata.var_name where targets are stored
+    basis: str, optional (default: `"pca"`)
+        basis stored in adata.obsm
     take: int, optional (default: `None`)
         number of highest R\u00B2 scores to plot
     
@@ -867,29 +795,31 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
     --------
     None
     """
+    if 'X_' + basis not in adata.obsm.keys():
+        raise ValueError(f'You have not computed \'{basis}\' basis.')
 
     from sklearn.linear_model import LinearRegression
 
-    if not isinstance(pcs, type(np.array)):
-        pcs = np.array(pcs)
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
         
     if groups is None:
         groups = np.concatenate([adata.var_names, adata.obs_keys()])
 
     reg = LinearRegression()
     
-    proj = adata.obsm['X_pca'][:, pcs - 1]
+    proj = adata.obsm['X_' + basis][:, components - 1]
     proj = np.expand_dims(proj, axis=2)  # linreg. requires this
     
     scoress = (sorted((reg.fit(x, y).score(x, y)
                           for x, y in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g])
                                        for g in groups)), reverse=True)[:take]
-                  for i in range(pcs.shape[0]))
+                  for i in range(components.shape[0]))
     
     len_g = len(groups)
     x_ticks = np.arange(0, len_g, max(1, min(10, len_g // 10)))
     
-    for pc, scores in zip(pcs, scoress):
+    for component, scores in zip(components, scoress):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
@@ -897,7 +827,7 @@ def plot_r2_scores(adata, pcs=[1, 2], groups=['n_counts'], take=None):
             ax.annotate(f'{group}', xy=(ix, score), xycoords='data',
                         rotation=90, ha='left', va='bottom')
             
-        ax.set_title(f'PC_{pc}')
+        ax.set_title(f'{basis}_{component}')
         ax.xaxis.set_ticks(x_ticks)
         
         plt.xlabel('rank')
