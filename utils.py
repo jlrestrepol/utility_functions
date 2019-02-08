@@ -799,10 +799,23 @@ def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
         raise ValueError(f'You have not computed \'{basis}\' basis.')
 
     from sklearn.linear_model import LinearRegression
+    from collections import defaultdict
+
+    import matplotlib.cm as cm
+    import matplotlib.patches as mpatches
 
     if not isinstance(components, type(np.array)):
         components = np.array(components)
-        
+
+    if isinstance(groups, dict):
+        # we call them genes even though they may be something else
+        cmap = {group:cm.Set1(i) for i, group in enumerate(groups.keys())}
+        gene_to_group = {gene:group for group, genes in groups.items() for gene in genes}
+        groups = list(gene_to_group.keys())
+    else:
+        cmap = defaultdict(lambda: 'black')
+        gene_to_group = defaultdict(lambda: None)
+
     if groups is None:
         groups = np.concatenate([adata.var_names, adata.obs_keys()])
 
@@ -811,27 +824,31 @@ def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
     proj = adata.obsm['X_' + basis][:, components - 1]
     proj = np.expand_dims(proj, axis=2)  # linreg. requires this
     
-    scoress = (sorted((reg.fit(x, y).score(x, y)
-                          for x, y in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g])
-                                       for g in groups)), reverse=True)[:take]
-                  for i in range(components.shape[0]))
+    score_groupss = (sorted(((reg.fit(x, y).score(x, y), g)
+        for x, y, g in ((proj[:, i], adata[:, g].X if g in adata.var_names else adata.obs[g], g)  # this just sets variable names
+            for g in groups)), reverse=True, key=lambda r_g: r_g[0])[:take]
+                for i in range(components.shape[0]))
     
     len_g = len(groups)
     x_ticks = np.arange(0, len_g, max(1, min(10, len_g // 10)))
     
-    for component, scores in zip(components, scoress):
+    for component, sgs, in zip(components, score_groupss):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
-        for ix, (group, score) in enumerate(zip(groups, scores)):
+        # TODO: better naming
+        for ix, (score, group) in enumerate(sgs):
             ax.annotate(f'{group}', xy=(ix, score), xycoords='data',
-                        rotation=90, ha='left', va='bottom')
+                        color=cmap[gene_to_group[group]], rotation=90, ha='left', va='bottom')
             
         ax.set_title(f'{basis}_{component}')
         ax.xaxis.set_ticks(x_ticks)
         
         plt.xlabel('rank')
         plt.ylabel('R\u00B2 score')
+
+        if not isinstance(cmap, defaultdict):
+            plt.legend(handles=[mpatches.Patch(color=color, label=f'{group}') for group, color in cmap.items()])
         
         plt.xlim(-1, len_g)
         plt.ylim(0, 1)
@@ -867,3 +884,5 @@ def simple_de_matching(adata, markers, n_genes=100):
     for key, value in matches.items():
         print(f'-- cluster {key} --')
         print(value)
+
+    return de_genes
