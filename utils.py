@@ -927,13 +927,16 @@ def simple_de_matching(adata, markers, n_genes=100):
     
     Returns
     --------
-    None
+    de_genes : pd.DataFrame
+        Contains the differentially expressed genes
     """
     gene_groups = adata.uns['rank_genes_groups']
     de_genes = pd.DataFrame(data=gene_groups['names']).head(n_genes)
-    print(de_genes.head(10))
+    #print(de_genes.head(10))
 
     matches = check_markers(de_genes, markers)
     for key, value in matches.items():
         print(f'-- cluster {key} --')
         print(value)
+
+    return de_genes
