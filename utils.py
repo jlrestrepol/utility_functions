@@ -405,7 +405,7 @@ def compare_distr(adata, key, groupby = 'batch', **kwags):
     plt.show()
     
     
-def print_numbers(adata, groupby=None):
+def print_numbers(adata, groupby=None, return_numbers=False):
     """
     Utility function to print cell numbers per batch
     
@@ -417,12 +417,16 @@ def print_numbers(adata, groupby=None):
         Annotated data matrix
     groupby : `str`, optional (defalut: `None`)
         Key to categorical annotation in adata.obs
+    return
     """
+
+    if return_numbers:
+        adata_numbers = dict()
 
     # check wether batch key exists
     if groupby is not None:
         if groupby not in adata.obs.keys():
-            raise ValueError('Cannot find the key {!r} in adata.obs'.format(groupgy))
+            raise ValueError('Cannot find the key {!r} in adata.obs'.format(groupby))
         else:
             # get the levels
             levels = adata.obs[groupby].cat.categories
@@ -431,10 +435,16 @@ def print_numbers(adata, groupby=None):
             for level in levels:
                 n_cells = adata[adata.obs[groupby] == level].n_obs
                 print('{} cells in batch {}'.format(n_cells, level))
+                if return_numbers:
+                    adata_numbers[level] = n_cells
     
     # number of genes
     print('Total: {} cells, {} genes'.\
           format(adata.n_obs, adata.n_vars))
+
+    if return_numbers:
+        adata_numbers['n_cells_total'] = adata.n_obs
+        return adata_numbers
     
     
 def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
