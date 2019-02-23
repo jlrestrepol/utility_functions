@@ -648,6 +648,8 @@ def de_results(adata, keys = ['names', 'scores'], cluster_key = 'louvain', n_gen
 def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
                            bins=100, min_bins=1, max_bins=1000,
                            tools='pan,reset, wheel_zoom, save',
+                           groups=None, fill_alpha=0.4,
+                           legend_loc='top_right',
                            *args, **kwargs):
     """Utility function to plot count distributions\
 
@@ -666,6 +668,13 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         minimum number of bins possible
     max_bins: int, optional (default: `1000`)
         maximum number of bins possible
+    groups: list[str], (default: `None`)
+        in adata.obs; groups by all possible combinations of values, e.g. for
+        3 plates and 2 time points, we would create total of 6 groups
+    fill_alpha: float[0.0, 1.0], (default: `0.4`)
+        alpha channel of fill color
+    legend_loc: str, (default: `top_right`)
+        position of the legend
     tools: str, optional (default: `"pan,reset, wheel_zoom, save"`)
         palette of interactive tools for the user
 
@@ -674,13 +683,18 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     None
     """
 
-    # import the library
+    from itertools import product
+    from functools import reduce
     from bokeh.plotting import figure, show, ColumnDataSource
-    from bokeh.models import CustomJS, Slider
+    from bokeh.models.widgets import CheckboxGroup
+    from bokeh.models import Slider
+    from bokeh.models.callbacks import CustomJS
     from bokeh.io import output_notebook
-    from bokeh.layouts import layout, column
+    from bokeh.layouts import layout, column, row
 
+    from copy import copy
     from numpy import array_split, ceil
+    from bokeh.palettes import Category20
     output_notebook()
 
     if min_bins < 1:
@@ -697,50 +711,89 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
            key not in adata.var_names:
             raise ValueError(f'The key `{key}` does not exist in adata.obs, adata.var or adata.var_names.')
 
-    # initialize list of slider, figure pairs
-    cols = []
-    # crate the histograms and the figures
-    for i, key in enumerate(keys):
+    def _create_adata_groups():
+        if groups is None:
+            return [('all',)], [adata]
+
+        combs = list(product(*[set(adata.obs[g]) for g in groups]))
+        return combs, [adata[reduce(lambda l, r: l & r,
+                                    (adata.obs[k] == v for k, v in zip(groups, vals)), True)]
+                       for vals in combs]
+
+    # group_v_combs contains the value combinations
+    # used for grupping
+    group_v_combs, adatas = _create_adata_groups()
+    n_plots = len(group_v_combs)
+    checkbox = CheckboxGroup(active=list(range(n_plots)), width=200)
+    
+    for key in keys:
         # create histogram
-        if key in adata.obs.keys():
-            orig = adata.obs[key]
-            hist, edges = np.histogram(orig, density=True, bins=bins)
-        elif key in adata.var.keys():
-            orig = adata.var[key]
-            hist, edges = np.histogram(orig, density=True, bins=bins)
-        else:
-            orig = adata[:, key].X
-            hist, edges = np.histogram(orig, density=True, bins=bins)
+        cols, legends, callbacks = [], [], []
+        plot_map = dict()
+        slider = Slider(start=min_bins, end=max_bins, value=bins, step=1,
+                        title='Bins')
 
-        # original data, used for recalculation of histogram in JS code
-        orig = ColumnDataSource(data=dict(values=orig))
-        # data that we update in JS code
-        source = ColumnDataSource(data=dict(hist=hist, l_edges=edges[:-1], r_edges=edges[1:]))
-
-        # create figure
         fig = figure(*args, tools=tools, title=kwargs.get('title', key))
-        fig.quad(source=source, top='hist', bottom=0,
-                 left='l_edges', right='r_edges',
-                 line_color="#555555")
+
+        for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, Category20[20])):
+            if key in ad.obs.keys():
+                orig = ad.obs[key]
+                hist, edges = np.histogram(orig, density=True, bins=bins)
+            elif key in ad.var.keys():
+                orig = ad.var[key]
+                hist, edges = np.histogram(orig, density=True, bins=bins)
+            else:
+                orig = ad[:, key].X
+                hist, edges = np.histogram(orig, density=True, bins=bins)
+
+            # original data, used for recalculation of histogram in JS code
+            orig = ColumnDataSource(data=dict(values=orig))
+            # data that we update in JS code
+            source = ColumnDataSource(data=dict(hist=hist, l_edges=edges[:-1], r_edges=edges[1:]))
+
+            legend = ', '.join(': '.join(map(str, gv)) for gv in zip(groups, group_vs)) \
+                    if groups is not None else 'all'
+            legends.append(legend)
+            # create figure
+            p = fig.quad(source=source, top='hist', bottom=0,
+                         left='l_edges', right='r_edges',
+                         fill_color=color, legend=legend,
+                         line_color="#555555", fill_alpha=fill_alpha)
+
+            # create callback and slider
+            callback = CustomJS(args=dict(source=source, orig=orig), code=_inter_hist_js_code)
+            callback.args['bins'] = slider
+            callbacks.append(callback)
+
+            # add the current plot so that we can set it
+            # visible/invisible in JS code
+            plot_map[f'p{j}'] = p
+
+        # slider now updates all values
+        slider.js_on_change('value', *callbacks)
+
+        plot_map['cb'] = checkbox
+        checkbox.callback = CustomJS(
+            args=plot_map,
+            code='\n'.join(f'p{i}.visible = cb.active.includes({i});' for i in range(n_plots))
+        )
+        checkbox.labels = legends
+
+        fig.legend.location = legend_loc
         fig.xaxis.axis_label = key
-        fig.yaxis.axis_label = 'normalised frequency'
+        fig.yaxis.axis_label = 'normalized frequency'
         fig.width = 400
         fig.height = 400
 
-        # create callback and slider
-        callback = CustomJS(args=dict(source=source, orig=orig), code=_inter_hist_js_code)
-        slider = Slider(start=min_bins, end=max_bins, value=bins, step=1,
-                        title='Bins', callback=callback)
-        callback.args['bins'] = slider
+        cols.append(column(slider, row(fig, checkbox)))
 
-        cols.append(column(slider, fig))
 
     # transform list of pairs of figures and sliders into list of lists, where
     # each sublist has length <= 2
     # note that bokeh does not like np.arrays
-    grid = list(map(list, array_split(cols, ceil(len(cols) / 2))))
+        grid = list(map(list, array_split(cols, ceil(len(cols) / 2))))
 
-    show(layout(children=grid, sizing_mode='fixed', ncols=2))
+        show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
 def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
