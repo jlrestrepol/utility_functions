@@ -813,7 +813,14 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
         fig = figure(*args, tools=tools, title=kwargs.get('title', key))
 
+        plot_ids = []
         for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, palette)):
+
+            if ad.n_obs == 0:
+                continue
+            
+            plot_ids.append(j)
+
             if key in ad.obs.keys():
                 orig = ad.obs[key]
                 hist, edges = np.histogram(orig, density=True, bins=bins)
@@ -853,7 +860,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         plot_map['cb'] = checkbox
         checkbox.callback = CustomJS(
             args=plot_map,
-            code='\n'.join(f'p{i}.visible = cb.active.includes({i});' for i in range(n_plots))
+            code='\n'.join(f'p{p_id}.visible = cb.active.includes({i});' for i, p_id in enumerate(plot_ids))
         )
         checkbox.labels = legends
 
