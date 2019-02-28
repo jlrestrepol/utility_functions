@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+
+from bokeh.palettes import Set1, Set2, Set3
+
 import pandas as pd
 import numpy as np
 import scanpy.api as sc
@@ -713,7 +717,8 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
                            bins=100, min_bins=1, max_bins=1000,
                            tools='pan,reset, wheel_zoom, save',
                            groups=None, fill_alpha=0.4,
-                           legend_loc='top_right',
+                           palette=Set1[9] + Set2[8] + Set3[12],
+                           legend_loc='top_right', display_all=True,
                            *args, **kwargs):
     """Utility function to plot count distributions\
 
@@ -741,6 +746,10 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         position of the legend
     tools: str, optional (default: `"pan,reset, wheel_zoom, save"`)
         palette of interactive tools for the user
+    palette: list, optional (default: `Set1[9] + Set2[8] + Set3[12]`)
+         colors from bokeh.palettes, e.g. Set1[9]
+    display_all: bool, optional (default: `True`)
+        Display the statistics for all data
 
     Returns
     --------
@@ -758,7 +767,6 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
     from copy import copy
     from numpy import array_split, ceil
-    from bokeh.palettes import Category20
     output_notebook()
 
     if min_bins < 1:
@@ -780,9 +788,15 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
             return [('all',)], [adata]
 
         combs = list(product(*[set(adata.obs[g]) for g in groups]))
-        return combs, [adata[reduce(lambda l, r: l & r,
-                                    (adata.obs[k] == v for k, v in zip(groups, vals)), True)]
-                       for vals in combs]
+        adatas= [adata[reduce(lambda l, r: l & r,
+                              (adata.obs[k] == v for k, v in zip(groups, vals)), True)]
+                 for vals in combs] + [adata]
+
+        if display_all:
+            combs += [('all',)]
+            adatas += [adata]
+
+        return combs, adatas
 
     # group_v_combs contains the value combinations
     # used for grupping
@@ -799,7 +813,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
         fig = figure(*args, tools=tools, title=kwargs.get('title', key))
 
-        for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, Category20[20])):
+        for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, palette)):
             if key in ad.obs.keys():
                 orig = ad.obs[key]
                 hist, edges = np.histogram(orig, density=True, bins=bins)
