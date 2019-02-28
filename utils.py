@@ -445,21 +445,80 @@ def print_numbers(adata, groupby=None, return_numbers=False):
     if return_numbers:
         adata_numbers['n_cells_total'] = adata.n_obs
         return adata_numbers
-    
+
+def batch_quantification(adata, scale=False,
+                         regress_out=None,
+                         n_neighbors=15, n_pcs=10,
+                         keys=['n_counts', 'n_genes'],
+                         batch_quant_key='batch',
+                         bases=['pca', 'umap'],
+                         components=[1, 2],
+                         random_state=0, copy=True):
+
+    """
+    adata : AnnData object
+        Annotated data matrix
+    scale: bool (default: `False`)
+        Scale cells to have 0 mean and 1 variance
+    regress_out: list[str], optional (default: `None`)
+        Keys from adata.obs to regress out
+    n_neighbors : int (default: `15`)
+        Number of neighbors to consider during clustering
+    n_pcs : int (default: `10`)
+        Number of principal components to use for clustering
+    keys : list[str], optional (default: `['n_counts', 'n_genes']`
+        Keys which are used in corr_ann
+    batch_quant_key: str, optional (default: `'batch'`)
+        Labels to use to compute silhouette coefficient
+    bases : list[str], optional (default: `['pca']`)
+        Bases to use
+    components : list[int], optional (default: `[1, 2]`)
+        Components of bases which are being passed to corr_ann
+    random_state : int, optional (default: `0`)
+        Random state to use
+    copy : bool, optional (default: `False`)
+        Operate on adata's copy rather than in-place
+    Returns
+    -------
+    None
+    """
+
+    if copy:
+        adata = adata.copy()
+
+    if regress_out is not None:
+        sc.pp.regress_out(adata, regress_out)
+
+    if scale:
+        sc.pp.scale(adata)
+
+    sc.pp.pca(adata, svd_solver='arpack', random_state=random_state)
+
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors,
+                    n_pcs=n_pcs,
+                    random_state=random_state)
+    sc.tl.umap(adata, random_state=random_state)
+
+    for basis in bases:
+        corr_ann(adata, obs_keys=keys, basis=basis, components=components)
+        quant_batch(adata, key=batch_quant_key, basis=basis, components=components)
+
+    return adata if copy else None
+
     
 def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
     """
-    Utility function to correlate continious annoations against embedding
+    Utility function to correlate continuous annotations against embedding
     
-    Can be used to see how large the linear influence of a measure like the counts depth is on a 
+    Can be used to see how large the linear influence of a measure like the count depth is on a 
     given component of any embedding, like PCA
     
     Parameters
     --------
     adata : AnnData object
-        Annotatied data matrix
+        Annotated data matrix
     obs_keys : `str`, optional (default: `[n_counts, n_genes]`)
-        Key for the continious annotaiton to use
+        Key for the continious annotation to use
     basis : `str`, optional (default: `"pca"`)
         Key to the basis stored in adata.obsm
     components : `int`, optional (default: `[1, 2]`)
@@ -483,7 +542,7 @@ def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1
 
     for key in obs_keys:
         for comp in components:
-            coordinates = X_em[:, comp-1]
+            coordinates = X_em[:, comp - 1]
 
             # get the continious annotation
             ann = adata.obs[key]
@@ -495,7 +554,7 @@ def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1
 
 
 # quantify the batch effect quickly using the silhouette coefficient
-def quant_batch(adata, key = 'batch', basis = 'pca'):
+def quant_batch(adata, key = 'batch', basis = 'pca', components=[1, 2]):
     """
     Utility funciton to quantify batch effects
     
@@ -510,6 +569,8 @@ def quant_batch(adata, key = 'batch', basis = 'pca'):
         Labels to use to compute silhouette coefficient
     basis : `str`, optional (default: `"pca"`)
         Basis to compute the silhouette coefficient in. First two components used.
+    components : list[str], optional (default: `[1, 2]`)
+        Which components to use
         
     Returns
     --------
@@ -517,16 +578,19 @@ def quant_batch(adata, key = 'batch', basis = 'pca'):
     """
     
     from sklearn.metrics import silhouette_score
-    
+
     # check input
     if 'X_' + basis not in adata.obsm.keys():
         raise ValueError('You have not computd this basis yet')
     if key not in adata.obs.keys():
         raise ValueError('The key \'{}\' does not exist in adata.obs'.format(key))
         
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
+    
     # get the embedding coordinate
     X_em = adata.obsm['X_' + basis]
-    X_em = X_em[:, :2]
+    X_em = X_em[:, components - 1]
     
     # get the continious annotation
     ann = adata.obs[key]
@@ -796,7 +860,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
-def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
+def plot_pcs(adata, pcs=[1, 2], groups=['n_counts', 'n_genes']):
     """
     Scatter plot of projected data and targets in groups.
     Params
