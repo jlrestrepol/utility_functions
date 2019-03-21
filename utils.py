@@ -760,6 +760,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     from functools import reduce
     from bokeh.plotting import figure, show, ColumnDataSource
     from bokeh.models.widgets import CheckboxGroup
+    from bokeh.models.widgets.buttons import Button
     from bokeh.models import Slider
     from bokeh.models.callbacks import CustomJS
     from bokeh.io import output_notebook
@@ -802,7 +803,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     # used for grupping
     group_v_combs, adatas = _create_adata_groups()
     n_plots = len(group_v_combs)
-    checkbox = CheckboxGroup(active=list(range(n_plots)), width=200)
+    checkbox_group = CheckboxGroup(active=list(range(n_plots)), width=200)
     
     for key in keys:
         # create histogram
@@ -852,17 +853,33 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
             # add the current plot so that we can set it
             # visible/invisible in JS code
-            plot_map[f'p{j}'] = p
+            plot_map[f'p_{j}'] = p
 
         # slider now updates all values
         slider.js_on_change('value', *callbacks)
+        plot_map['cb'] = checkbox_group
 
-        plot_map['cb'] = checkbox
-        checkbox.callback = CustomJS(
+        button = Button(label='Toggle All', button_type='primary')
+        code_t='\n'.join(f'p_{p_id}.visible = false;' for i, p_id in enumerate(plot_ids))
+        code_f ='\n'.join(f'p_{p_id}.visible = true;' for i, p_id in enumerate(plot_ids))
+        button.callback = CustomJS(
             args=plot_map,
-            code='\n'.join(f'p{p_id}.visible = cb.active.includes({i});' for i, p_id in enumerate(plot_ids))
+            code=f'''if (cb.active.length == {len(plot_map) - 1}) {{
+                console.log(cb.active);
+                cb.active = Array();
+                {code_t};
+            }} else {{
+                console.log(cb.active);
+                cb.active = Array.from(Array({len(plot_map) - 1}).keys());
+                {code_f};
+            }}'''
         )
-        checkbox.labels = legends
+
+        checkbox_group.callback = CustomJS(
+            args=plot_map,
+            code='\n'.join(f'p_{p_id}.visible = cb.active.includes({i});' for i, p_id in enumerate(plot_ids))
+        )
+        checkbox_group.labels = legends
 
         fig.legend.location = legend_loc
         fig.xaxis.axis_label = key
@@ -870,7 +887,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         fig.width = 400
         fig.height = 400
 
-        cols.append(column(slider, row(fig, checkbox)))
+        cols.append(column(slider, button, row(fig, checkbox_group)))
 
 
     # transform list of pairs of figures and sliders into list of lists, where
@@ -1000,9 +1017,8 @@ def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
         
         plt.xlim(-1, len_g)
         plt.ylim(0, 1)
-        plt.grid(visible=False)
+        plt.grid(visible=True)
         
-        plt.grid()
         plt.show()
 
 
