@@ -815,12 +815,13 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         fig = figure(*args, tools=tools, title=kwargs.get('title', key))
 
         plot_ids = []
-        for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, palette)):
+        for j, (ad, group_vs) in enumerate(zip(adatas, group_v_combs)):
 
             if ad.n_obs == 0:
                 continue
             
             plot_ids.append(j)
+            color = palette[len(plot_ids) - 1]
 
             if key in ad.obs.keys():
                 orig = ad.obs[key]
