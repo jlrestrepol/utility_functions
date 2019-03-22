@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+
+from bokeh.palettes import Set1, Set2, Set3
+
 import pandas as pd
 import numpy as np
 import scanpy.api as sc
@@ -445,21 +449,80 @@ def print_numbers(adata, groupby=None, return_numbers=False):
     if return_numbers:
         adata_numbers['n_cells_total'] = adata.n_obs
         return adata_numbers
-    
+
+def batch_quantification(adata, scale=False,
+                         regress_out=None,
+                         n_neighbors=15, n_pcs=10,
+                         keys=['n_counts', 'n_genes'],
+                         batch_quant_key='batch',
+                         bases=['pca', 'umap'],
+                         components=[1, 2],
+                         random_state=0, copy=True):
+
+    """
+    adata : AnnData object
+        Annotated data matrix
+    scale: bool (default: `False`)
+        Scale cells to have 0 mean and 1 variance
+    regress_out: list[str], optional (default: `None`)
+        Keys from adata.obs to regress out
+    n_neighbors : int (default: `15`)
+        Number of neighbors to consider during clustering
+    n_pcs : int (default: `10`)
+        Number of principal components to use for clustering
+    keys : list[str], optional (default: `['n_counts', 'n_genes']`
+        Keys which are used in corr_ann
+    batch_quant_key: str, optional (default: `'batch'`)
+        Labels to use to compute silhouette coefficient
+    bases : list[str], optional (default: `['pca']`)
+        Bases to use
+    components : list[int], optional (default: `[1, 2]`)
+        Components of bases which are being passed to corr_ann
+    random_state : int, optional (default: `0`)
+        Random state to use
+    copy : bool, optional (default: `False`)
+        Operate on adata's copy rather than in-place
+    Returns
+    -------
+    None
+    """
+
+    if copy:
+        adata = adata.copy()
+
+    if regress_out is not None:
+        sc.pp.regress_out(adata, regress_out)
+
+    if scale:
+        sc.pp.scale(adata)
+
+    sc.pp.pca(adata, svd_solver='arpack', random_state=random_state)
+
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors,
+                    n_pcs=n_pcs,
+                    random_state=random_state)
+    sc.tl.umap(adata, random_state=random_state)
+
+    for basis in bases:
+        corr_ann(adata, obs_keys=keys, basis=basis, components=components)
+        quant_batch(adata, key=batch_quant_key, basis=basis, components=components)
+
+    return adata if copy else None
+
     
 def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
     """
-    Utility function to correlate continious annoations against embedding
+    Utility function to correlate continuous annotations against embedding
     
-    Can be used to see how large the linear influence of a measure like the counts depth is on a 
+    Can be used to see how large the linear influence of a measure like the count depth is on a 
     given component of any embedding, like PCA
     
     Parameters
     --------
     adata : AnnData object
-        Annotatied data matrix
+        Annotated data matrix
     obs_keys : `str`, optional (default: `[n_counts, n_genes]`)
-        Key for the continious annotaiton to use
+        Key for the continious annotation to use
     basis : `str`, optional (default: `"pca"`)
         Key to the basis stored in adata.obsm
     components : `int`, optional (default: `[1, 2]`)
@@ -483,7 +546,7 @@ def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1
 
     for key in obs_keys:
         for comp in components:
-            coordinates = X_em[:, comp-1]
+            coordinates = X_em[:, comp - 1]
 
             # get the continious annotation
             ann = adata.obs[key]
@@ -495,7 +558,7 @@ def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1
 
 
 # quantify the batch effect quickly using the silhouette coefficient
-def quant_batch(adata, key = 'batch', basis = 'pca'):
+def quant_batch(adata, key = 'batch', basis = 'pca', components=[1, 2]):
     """
     Utility funciton to quantify batch effects
     
@@ -510,6 +573,8 @@ def quant_batch(adata, key = 'batch', basis = 'pca'):
         Labels to use to compute silhouette coefficient
     basis : `str`, optional (default: `"pca"`)
         Basis to compute the silhouette coefficient in. First two components used.
+    components : list[str], optional (default: `[1, 2]`)
+        Which components to use
         
     Returns
     --------
@@ -517,16 +582,19 @@ def quant_batch(adata, key = 'batch', basis = 'pca'):
     """
     
     from sklearn.metrics import silhouette_score
-    
+
     # check input
     if 'X_' + basis not in adata.obsm.keys():
         raise ValueError('You have not computd this basis yet')
     if key not in adata.obs.keys():
         raise ValueError('The key \'{}\' does not exist in adata.obs'.format(key))
         
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
+    
     # get the embedding coordinate
     X_em = adata.obsm['X_' + basis]
-    X_em = X_em[:, :2]
+    X_em = X_em[:, components - 1]
     
     # get the continious annotation
     ann = adata.obs[key]
@@ -649,7 +717,8 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
                            bins=100, min_bins=1, max_bins=1000,
                            tools='pan,reset, wheel_zoom, save',
                            groups=None, fill_alpha=0.4,
-                           legend_loc='top_right',
+                           palette=Set1[9] + Set2[8] + Set3[12],
+                           legend_loc='top_right', display_all=True,
                            *args, **kwargs):
     """Utility function to plot count distributions\
 
@@ -677,6 +746,10 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         position of the legend
     tools: str, optional (default: `"pan,reset, wheel_zoom, save"`)
         palette of interactive tools for the user
+    palette: list, optional (default: `Set1[9] + Set2[8] + Set3[12]`)
+         colors from bokeh.palettes, e.g. Set1[9]
+    display_all: bool, optional (default: `True`)
+        Display the statistics for all data
 
     Returns
     --------
@@ -687,6 +760,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     from functools import reduce
     from bokeh.plotting import figure, show, ColumnDataSource
     from bokeh.models.widgets import CheckboxGroup
+    from bokeh.models.widgets.buttons import Button
     from bokeh.models import Slider
     from bokeh.models.callbacks import CustomJS
     from bokeh.io import output_notebook
@@ -694,7 +768,6 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
     from copy import copy
     from numpy import array_split, ceil
-    from bokeh.palettes import Category20
     output_notebook()
 
     if min_bins < 1:
@@ -716,15 +789,21 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
             return [('all',)], [adata]
 
         combs = list(product(*[set(adata.obs[g]) for g in groups]))
-        return combs, [adata[reduce(lambda l, r: l & r,
-                                    (adata.obs[k] == v for k, v in zip(groups, vals)), True)]
-                       for vals in combs]
+        adatas= [adata[reduce(lambda l, r: l & r,
+                              (adata.obs[k] == v for k, v in zip(groups, vals)), True)]
+                 for vals in combs] + [adata]
+
+        if display_all:
+            combs += [('all',)]
+            adatas += [adata]
+
+        return combs, adatas
 
     # group_v_combs contains the value combinations
     # used for grupping
     group_v_combs, adatas = _create_adata_groups()
     n_plots = len(group_v_combs)
-    checkbox = CheckboxGroup(active=list(range(n_plots)), width=200)
+    checkbox_group = CheckboxGroup(active=list(range(n_plots)), width=200)
     
     for key in keys:
         # create histogram
@@ -735,7 +814,15 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
         fig = figure(*args, tools=tools, title=kwargs.get('title', key))
 
-        for j, (ad, group_vs, color) in enumerate(zip(adatas, group_v_combs, Category20[20])):
+        plot_ids = []
+        for j, (ad, group_vs) in enumerate(zip(adatas, group_v_combs)):
+
+            if ad.n_obs == 0:
+                continue
+            
+            plot_ids.append(j)
+            color = palette[len(plot_ids) - 1]
+
             if key in ad.obs.keys():
                 orig = ad.obs[key]
                 hist, edges = np.histogram(orig, density=True, bins=bins)
@@ -767,17 +854,33 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
 
             # add the current plot so that we can set it
             # visible/invisible in JS code
-            plot_map[f'p{j}'] = p
+            plot_map[f'p_{j}'] = p
 
         # slider now updates all values
         slider.js_on_change('value', *callbacks)
+        plot_map['cb'] = checkbox_group
 
-        plot_map['cb'] = checkbox
-        checkbox.callback = CustomJS(
+        button = Button(label='Toggle All', button_type='primary')
+        code_t='\n'.join(f'p_{p_id}.visible = false;' for i, p_id in enumerate(plot_ids))
+        code_f ='\n'.join(f'p_{p_id}.visible = true;' for i, p_id in enumerate(plot_ids))
+        button.callback = CustomJS(
             args=plot_map,
-            code='\n'.join(f'p{i}.visible = cb.active.includes({i});' for i in range(n_plots))
+            code=f'''if (cb.active.length == {len(plot_map) - 1}) {{
+                console.log(cb.active);
+                cb.active = Array();
+                {code_t};
+            }} else {{
+                console.log(cb.active);
+                cb.active = Array.from(Array({len(plot_map) - 1}).keys());
+                {code_f};
+            }}'''
         )
-        checkbox.labels = legends
+
+        checkbox_group.callback = CustomJS(
+            args=plot_map,
+            code='\n'.join(f'p_{p_id}.visible = cb.active.includes({i});' for i, p_id in enumerate(plot_ids))
+        )
+        checkbox_group.labels = legends
 
         fig.legend.location = legend_loc
         fig.xaxis.axis_label = key
@@ -785,7 +888,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         fig.width = 400
         fig.height = 400
 
-        cols.append(column(slider, row(fig, checkbox)))
+        cols.append(column(slider, button, row(fig, checkbox_group)))
 
 
     # transform list of pairs of figures and sliders into list of lists, where
@@ -796,7 +899,47 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
-def plot_pcs(adata, pcs=[1, 2], groups=['n_counts']):
+def plot_cell_indices(adata, basis='umap', components=[1, 2], key='group'):
+    from bokeh.layouts import column
+    from bokeh.models import ColumnDataSource
+    from bokeh.plotting import figure, show
+    from bokeh.palettes import viridis
+    from bokeh.models.widgets.buttons import Button
+    from bokeh.models.callbacks import CustomJS
+    from bokeh.models import LabelSet, CategoricalColorMapper
+
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
+
+    df = pd.DataFrame(adata.obsm['X_' + basis][:, components - (0 if basis == 'diffmap' else 1)], columns=['x', 'y'])
+    df[key] = list(adata.obs[key])
+    df['louvain'] = list(adata.obs['louvain'])
+    df['index'] = range(len(df))
+
+    palette = viridis(len(df[key].unique()))
+    color_map = CategoricalColorMapper(factors=df[key].unique(),
+                                           palette=palette)
+    source = ColumnDataSource(df)
+
+    p = figure(title=f'{basis}')
+    p.scatter(x='x', y='y', size=10,
+              color={'field': key, 'transform': color_map},
+              line_color='louvain', source=source)
+
+    labels = LabelSet(x='x', y='y', text='index',
+                      x_offset=4, y_offset=4,
+                      level='glyph',
+                      source=source, render_mode='canvas')
+    labels.visible = False
+    p.add_layout(labels)
+
+    button = Button(label='Toggle Indices', button_type='primary')
+    button.callback = CustomJS(args=dict(l=labels), code='l.visible = !l.visible;')
+
+    show(column(button, p))
+
+
+def plot_pcs(adata, pcs=[1, 2], groups=['n_counts', 'n_genes']):
     """
     Scatter plot of projected data and targets in groups.
     Params
@@ -915,9 +1058,8 @@ def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
         
         plt.xlim(-1, len_g)
         plt.ylim(0, 1)
-        plt.grid(visible=False)
+        plt.grid(visible=True)
         
-        plt.grid()
         plt.show()
 
 
@@ -950,3 +1092,47 @@ def simple_de_matching(adata, markers, n_genes=100):
         print(value)
 
     return de_genes
+
+
+def create_cellxgene_browser(adata, dst_path, token, jupyter_url='http://localhost:8888',
+                             username='user', password='passwd', browser_name='analysis',
+                             dst_adata_fname='cellxgene.h5ad', dst_cfg_fname='cellxgene.config'):
+    from tempfile import NamedTemporaryFile
+    import os
+    import requests
+    import urllib
+    import base64
+    import json
+
+    cfg_data = json.dumps({
+        'content': f'BASIC_USER={username}\nBASIC_PW={password}\nSAMPLENAME={browser_name}',
+        'name': dst_cfg_fname,
+        'path': dst_path,
+        'format': 'text',
+        'type': 'file',
+        'mimetype': 'text/plain'
+    })
+
+    tmp_f = NamedTemporaryFile('w', suffix='.h5ad')
+    sc.write(tmp_f.name, adata)
+
+    # just in case
+    tmp_f.flush()
+    tmp_f.seek(0)
+
+    with open(tmp_f.name, 'rb') as f:
+        ad_data = json.dumps({
+            'content': base64.encodebytes(f.read()).decode('ascii'),
+            'name': dst_adata_fname,
+            'path': dst_path,
+            'format': 'base64',
+            'type': 'file'
+        })
+
+    dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
+    res = []
+
+    for fname, data in zip([dst_adata_fname, dst_cfg_fname], [ad_data, cfg_data]):
+        res.append(requests.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}))
+
+    return res
