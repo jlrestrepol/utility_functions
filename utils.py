@@ -899,6 +899,46 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
+def plot_cell_indices(adata, basis='umap', components=[1, 2], key='group'):
+    from bokeh.layouts import column
+    from bokeh.models import ColumnDataSource
+    from bokeh.plotting import figure, show
+    from bokeh.palettes import viridis
+    from bokeh.models.widgets.buttons import Button
+    from bokeh.models.callbacks import CustomJS
+    from bokeh.models import LabelSet, CategoricalColorMapper
+
+    if not isinstance(components, type(np.array)):
+        components = np.array(components)
+
+    df = pd.DataFrame(adata.obsm['X_' + basis][:, components - (0 if basis == 'diffmap' else 1)], columns=['x', 'y'])
+    df[key] = list(adata.obs[key])
+    df['louvain'] = list(adata.obs['louvain'])
+    df['index'] = range(len(df))
+
+    palette = viridis(len(df[key].unique()))
+    color_map = CategoricalColorMapper(factors=df[key].unique(),
+                                           palette=palette)
+    source = ColumnDataSource(df)
+
+    p = figure(title=f'{basis}')
+    p.scatter(x='x', y='y', size=10,
+              color={'field': key, 'transform': color_map},
+              line_color='louvain', source=source)
+
+    labels = LabelSet(x='x', y='y', text='index',
+                      x_offset=4, y_offset=4,
+                      level='glyph',
+                      source=source, render_mode='canvas')
+    labels.visible = False
+    p.add_layout(labels)
+
+    button = Button(label='Toggle Indices', button_type='primary')
+    button.callback = CustomJS(args=dict(l=labels), code='l.visible = !l.visible;')
+
+    show(column(button, p))
+
+
 def plot_pcs(adata, pcs=[1, 2], groups=['n_counts', 'n_genes']):
     """
     Scatter plot of projected data and targets in groups.
@@ -1052,3 +1092,47 @@ def simple_de_matching(adata, markers, n_genes=100):
         print(value)
 
     return de_genes
+
+
+def create_cellxgene_browser(adata, dst_path, token, jupyter_url='http://localhost:8888',
+                             username='user', password='passwd', browser_name='analysis',
+                             dst_adata_fname='cellxgene.h5ad', dst_cfg_fname='cellxgene.config'):
+    from tempfile import NamedTemporaryFile
+    import os
+    import requests
+    import urllib
+    import base64
+    import json
+
+    cfg_data = json.dumps({
+        'content': f'BASIC_USER={username}\nBASIC_PW={password}\nSAMPLENAME={browser_name}',
+        'name': dst_cfg_fname,
+        'path': dst_path,
+        'format': 'text',
+        'type': 'file',
+        'mimetype': 'text/plain'
+    })
+
+    tmp_f = NamedTemporaryFile('w', suffix='.h5ad')
+    sc.write(tmp_f.name, adata)
+
+    # just in case
+    tmp_f.flush()
+    tmp_f.seek(0)
+
+    with open(tmp_f.name, 'rb') as f:
+        ad_data = json.dumps({
+            'content': base64.encodebytes(f.read()).decode('ascii'),
+            'name': dst_adata_fname,
+            'path': dst_path,
+            'format': 'base64',
+            'type': 'file'
+        })
+
+    dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
+    res = []
+
+    for fname, data in zip([dst_adata_fname, dst_cfg_fname], [ad_data, cfg_data]):
+        res.append(requests.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}))
+
+    return res
