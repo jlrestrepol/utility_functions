@@ -750,6 +750,8 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
          colors from bokeh.palettes, e.g. Set1[9]
     display_all: bool, optional (default: `True`)
         Display the statistics for all data
+    **kwargs: keyword arguments for figure
+        Specify e.g. `"plot_width"` to set the width of the figure.
 
     Returns
     --------
@@ -812,7 +814,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         slider = Slider(start=min_bins, end=max_bins, value=bins, step=1,
                         title='Bins')
 
-        fig = figure(*args, tools=tools, title=kwargs.get('title', key))
+        fig = figure(*args, tools=tools, **kwargs)
 
         plot_ids = []
         for j, (ad, group_vs) in enumerate(zip(adatas, group_v_combs)):
@@ -885,8 +887,8 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         fig.legend.location = legend_loc
         fig.xaxis.axis_label = key
         fig.yaxis.axis_label = 'normalized frequency'
-        fig.width = 400
-        fig.height = 400
+        fig.plot_width = kwargs.get('plot_width', 400)
+        fig.plot_height = kwargs.get('plot_height', 400)
 
         cols.append(column(slider, button, row(fig, checkbox_group)))
 
@@ -1094,19 +1096,73 @@ def simple_de_matching(adata, markers, n_genes=100):
     return de_genes
 
 
-def create_cellxgene_browser(adata, dst_path, token, jupyter_url='http://localhost:8888',
+def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', dst_path='',
                              username='user', password='passwd', browser_name='analysis',
-                             dst_adata_fname='cellxgene.h5ad', dst_cfg_fname='cellxgene.config'):
+                             adata_fname='cellxgene.h5ad', cfg_fname='cellxgene.config'):
+    """
+    Create an .h5ad and .config files for the cellxgene browser.
+
+    Params
+    --------
+    adata: AnnData object
+        AnnData object to be visualized.
+    token: str
+        Token for the Jupyter server.
+    jupyter_url: str (default: `"http://localhost:8888"`)
+        Url pointing to the Jupyter server.
+    dst_path: str (default: `""`)
+        Path to the destination directory. `""` corresponds to the root on the Jupyter server.
+    username: str (default: `"user"`)
+        Username for the cellxgene browser.
+    password: str (default: `"passwd"`)
+        Password for the cellxgene browser.
+    browser_name: str (default: `"analysis"`)
+        Name of the cellxgene browser.
+    adata_fname: str (default: `"cellxgene.h5ad"`)
+        Name of the .h5ad file.
+    cfg_name: str (default: `"cellxgene.config"`)
+        Name of the .config file.
+
+    --------
+    Returns: Tuple(requests.models.Response, requests.models.Response)
+    Responses corresponding to the creation of the .h5ad and .config files respectively.
+    """
+
     from tempfile import NamedTemporaryFile
+    from itertools import accumulate
     import os
+    import warnings
     import requests
     import urllib
     import base64
     import json
 
+    def create_folder(path, warn=False):
+        dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(path))
+        resp = json.loads(requests.get(dst_url, data=dict(path=path, type='directory'), params={'token': token}).text)
+        if resp.get('type') is None:
+            dir_data = json.dumps({
+                'name': os.path.basename(path),
+                'path': path,
+                'format': 'json',
+                'type': 'directory',
+                'mimetype': None
+            })
+            resp = requests.put(dst_url, data=dir_data, params={'token': token})
+            if resp.status_code != 201:  # resource succesfully created
+                raise RuntimeError(f"Creating directory `{path}` returned status code: {resp.status_code}. Message: `{json.loads(resp.text).get('message', None)}`.")
+        elif resp['type'] != 'directory':
+            raise OSError(os.errno.EEXIST, f"`{path}` already exists. Expected it to be of type `directory`, got type `{resp['type']}`.")
+        elif warn:
+            warnings.warn(f'Directory `{path}` already exists, will overwrite files if necessary.')
+
+    paths = list(accumulate([p for p in dst_path.split(os.path.sep) if p != ''], lambda p, d: os.path.join(p, d)))
+    for path, warn in zip(paths, [False] * (len(paths) - 1) + [True]):
+        create_folder(path, warn)
+
     cfg_data = json.dumps({
-        'content': f'BASIC_USER={username}\nBASIC_PW={password}\nSAMPLENAME={browser_name}',
-        'name': dst_cfg_fname,
+        'content': f'BASIC_USER={username}\nBASIC_PW={password}\nSAMPLENAME={browser_name}\n',
+        'name': cfg_fname,
         'path': dst_path,
         'format': 'text',
         'type': 'file',
@@ -1123,16 +1179,16 @@ def create_cellxgene_browser(adata, dst_path, token, jupyter_url='http://localho
     with open(tmp_f.name, 'rb') as f:
         ad_data = json.dumps({
             'content': base64.encodebytes(f.read()).decode('ascii'),
-            'name': dst_adata_fname,
+            'name': adata_fname,
             'path': dst_path,
             'format': 'base64',
             'type': 'file'
         })
 
-    dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
     res = []
-
-    for fname, data in zip([dst_adata_fname, dst_cfg_fname], [ad_data, cfg_data]):
+    dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
+    
+    for fname, data in zip([adata_fname, cfg_fname], [ad_data, cfg_data]):
         res.append(requests.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}))
 
-    return res
+    return tuple(res)
