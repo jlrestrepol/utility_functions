@@ -1130,6 +1130,7 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
 
     from tempfile import NamedTemporaryFile
     from itertools import accumulate
+    from time import sleep
     import os
     import warnings
     import requests
@@ -1139,7 +1140,7 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
 
     def create_folder(path, warn=False):
         dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(path))
-        resp = json.loads(requests.get(dst_url, data=dict(path=path, type='directory'), params={'token': token}).text)
+        resp = json.loads(session.get(dst_url, data=dict(path=path, type='directory'), params={'token': token}).text)
         if resp.get('type') is None:
             dir_data = json.dumps({
                 'name': os.path.basename(path),
@@ -1148,17 +1149,22 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
                 'type': 'directory',
                 'mimetype': None
             })
-            resp = requests.put(dst_url, data=dir_data, params={'token': token})
+            resp = session.put(dst_url, data=dir_data, params={'token': token})
             if resp.status_code != 201:  # resource succesfully created
                 raise RuntimeError(f"Creating directory `{path}` returned status code: {resp.status_code}. Message: `{json.loads(resp.text).get('message', None)}`.")
+            return resp.cookies
         elif resp['type'] != 'directory':
             raise OSError(os.errno.EEXIST, f"`{path}` already exists. Expected it to be of type `directory`, got type `{resp['type']}`.")
         elif warn:
             warnings.warn(f'Directory `{path}` already exists, will overwrite files if necessary.')
+        return {}
+
+    cookies = {}
+    session = requests.session()
 
     paths = list(accumulate([p for p in dst_path.split(os.path.sep) if p != ''], lambda p, d: os.path.join(p, d)))
     for path, warn in zip(paths, [False] * (len(paths) - 1) + [True]):
-        create_folder(path, warn)
+        cookies = create_folder(path, warn)
 
     cfg_data = json.dumps({
         'content': f'BASIC_USER={username}\nBASIC_PW={password}\nSAMPLENAME={browser_name}\n',
@@ -1189,6 +1195,7 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
     dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
     
     for fname, data in zip([adata_fname, cfg_fname], [ad_data, cfg_data]):
-        res.append(requests.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}))
+        res.append(session.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}, cookies=cookies))
+        sleep(20)
 
     return tuple(res)
