@@ -715,7 +715,7 @@ def de_results(adata, keys = ['names', 'scores'], cluster_key = 'louvain', n_gen
 
 def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
                            bins=100, min_bins=1, max_bins=1000,
-                           tools='pan,reset, wheel_zoom, save',
+                           tools='pan, reset, wheel_zoom, save',
                            groups=None, fill_alpha=0.4,
                            palette=Set1[9] + Set2[8] + Set3[12],
                            legend_loc='top_right', display_all=True,
@@ -728,7 +728,7 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     Params
     --------
     adata: AnnData Object
-        Annotated data object
+        annotated data object
     keys: list, optional (default: `["n_counts", "n_genes"]`)
         keys in adata.obs or adata.var where the distibutions are stored
     bins: int, optional (default: `100`)
@@ -749,9 +749,9 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
     palette: list, optional (default: `Set1[9] + Set2[8] + Set3[12]`)
          colors from bokeh.palettes, e.g. Set1[9]
     display_all: bool, optional (default: `True`)
-        Display the statistics for all data
+        display the statistics for all data
     **kwargs: keyword arguments for figure
-        Specify e.g. `"plot_width"` to set the width of the figure.
+        specify e.g. `"plot_width"` to set the width of the figure.
 
     Returns
     --------
@@ -901,7 +901,30 @@ def interactive_histograms(adata, keys=['n_counts', 'n_genes'],
         show(layout(children=grid, sizing_mode='fixed', ncols=2))
 
 
-def plot_cell_indices(adata, basis='umap', components=[1, 2], key='group'):
+def plot_cell_indices(adata, key='group', basis='diffmap', components=[1, 2],
+                      legend_loc='top_right', tools='pan, reset, wheel_zoom, save'):
+    """
+    Plot cell indices. Useful when trying to set adata.uns['iroot'].
+
+    Params
+    --------
+    adata: AnnData Object
+        annotated data object
+    key: str, optional (default: `"group"`)
+        key in adata.obs to color
+    basis: str, optional (default: `"diffmap"`)
+        basis to use
+    components: list[int], optional (default: `[1, 2]`)
+        which components of the basis to use
+    legend_loc: str, optional (default `"top_right"`)
+        location of the legend
+    tools: str, optional (default: `"pan, reset, wheel_zoom, save"`)
+        tools for the plot
+
+    Returns
+    --------
+    None
+    """
     from bokeh.layouts import column
     from bokeh.models import ColumnDataSource
     from bokeh.plotting import figure, show
@@ -910,24 +933,31 @@ def plot_cell_indices(adata, basis='umap', components=[1, 2], key='group'):
     from bokeh.models.callbacks import CustomJS
     from bokeh.models import LabelSet, CategoricalColorMapper
 
+    if key not in adata.obs:
+        raise ValueError(f'{key} not found in adata.obs')
+
+    if f'X_{basis}' not in adata.obsm_keys():
+        raise ValueError(f'basis `X_{basis}` not found in adata.obsm')
+
     if not isinstance(components, type(np.array)):
         components = np.array(components)
 
-    df = pd.DataFrame(adata.obsm['X_' + basis][:, components - (0 if basis == 'diffmap' else 1)], columns=['x', 'y'])
+    df = pd.DataFrame(adata.obsm[f'X_{basis}'][:, components - (0 if basis == 'diffmap' else 1)], columns=['x', 'y'])
     df[key] = list(adata.obs[key])
-    df['louvain'] = list(adata.obs['louvain'])
     df['index'] = range(len(df))
 
-    palette = viridis(len(df[key].unique()))
-    color_map = CategoricalColorMapper(factors=df[key].unique(),
-                                           palette=palette)
+    palette = adata.uns.get(f'{key}_colors', viridis(len(df[key].unique())))
+
+    p = figure(title=f'{key}', tools=tools)
+    for k, color in zip(adata.obs[key].cat.categories, palette):
+        data = ColumnDataSource(df[df[key] == k])
+        p.scatter(x='x', y='y', size=10, color=color, legend=str(k), source=data)
+
+    p.legend.location = legend_loc
+    p.xaxis.axis_label = f'{basis}_{components[0]}'
+    p.yaxis.axis_label = f'{basis}_{components[1]}'
+
     source = ColumnDataSource(df)
-
-    p = figure(title=f'{basis}')
-    p.scatter(x='x', y='y', size=10,
-              color={'field': key, 'transform': color_map},
-              line_color='louvain', source=source)
-
     labels = LabelSet(x='x', y='y', text='index',
                       x_offset=4, y_offset=4,
                       level='glyph',
@@ -989,7 +1019,7 @@ def plot_r2_scores(adata, components=[1, 2], groups=['n_counts', 'n_genes'],
     Params
     --------
     adata: AnnData Object
-        Annotated data object
+        annotated data object
     components: list, optional (default: `[1, 2]`)
         components to use
     groups: list, optional (default: `["n_counts", "n_genes"]`)
@@ -1105,7 +1135,7 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
     Params
     --------
     adata: AnnData object
-        AnnData object to be visualized.
+        annData object to be visualized.
     token: str
         Token for the Jupyter server.
     jupyter_url: str (default: `"http://localhost:8888"`)
