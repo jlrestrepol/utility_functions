@@ -412,7 +412,7 @@ def compare_distr(adata, key, groupby = 'batch', **kwags):
     plt.show()
     
     
-def print_numbers(adata, groupby=None, return_numbers=False):
+def print_numbers(adata, groupby=None, return_numbers=False, save_numbers=None):
     """
     Utility function to print cell numbers per batch
     
@@ -424,17 +424,22 @@ def print_numbers(adata, groupby=None, return_numbers=False):
         Annotated data matrix
     groupby : `str`, optional (defalut: `None`)
         Key to categorical annotation in adata.obs
-    return
+    return_numbers: bool, optional (default: `False`)
+        Whether to return cell and gene numbers
+    save_numbers: None or str, optional (default: `None`)
+        if not None, saved the numbers in the adata object in uns
     """
 
-    if return_numbers:
-        adata_numbers = dict()
+    adata_numbers = dict()
+    adata_numbers['groupby'] = groupby
+    adata_numbers['n_cells_total'] = adata.n_obs
 
     # check wether batch key exists
     if groupby is not None:
         if groupby not in adata.obs.keys():
             raise ValueError('Cannot find the key {!r} in adata.obs'.format(groupby))
         else:
+            adata_numbers['by_group'] = dict()
             # get the levels
             levels = adata.obs[groupby].cat.categories
 
@@ -442,16 +447,58 @@ def print_numbers(adata, groupby=None, return_numbers=False):
             for level in levels:
                 n_cells = adata[adata.obs[groupby] == level].n_obs
                 print('{} cells in batch {}'.format(n_cells, level))
-                if return_numbers:
-                    adata_numbers[level] = n_cells
+                adata_numbers['by_group'][level] = n_cells
     
-    # number of genes
+    # In total
     print('Total: {} cells, {} genes'.\
           format(adata.n_obs, adata.n_vars))
 
+    if save_numbers is not None:
+        adata.uns[save_numbers] = adata_numbers
+
     if return_numbers:
-        adata_numbers['n_cells_total'] = adata.n_obs
         return adata_numbers
+
+
+def print_filtering(adata, key='original_numbers'):
+    """
+
+    :param adata: AnnData Object
+        Annotated Data Matrix
+    :param key: str, optional (default: `"original_numbers"`)
+        Where to find the original cell numbers in the
+        adata.uns field
+    :return: Nothing, just prints
+    """
+    # check whether the original number have been saved
+    if key not in adata.uns.keys():
+        raise ValueError('Key {!r} not found in adata.uns')
+    else:
+        original_numbers = adata.uns[key]
+
+    # print results for total numbers
+    print('In total: ')
+    n_cells = adata.n_obs
+    n_cells_orig = original_numbers['n_cells_total']
+    print('Filtered out {} cells or {:2.2f} %.\n'.format(
+        n_cells_orig - n_cells,
+        100 * (n_cells_orig - n_cells) / n_cells_orig))
+
+    # print results for group specific numbers
+    group_key = original_numbers['groupby']
+    if group_key is not None:
+        print('By {}'.format(group_key))
+        groups = adata.obs[group_key]
+        groups = pd.Series(groups, dtype='category')
+        groups = groups.cat.categories
+        for group in groups:
+            n_cells = adata[adata.obs[group_key] == group].n_obs
+            n_cells_orig = original_numbers['by_group'][group]
+            print('Filtered out {} cells or {:2.2f} % of {} {}.'.format(
+                n_cells_orig - n_cells,
+                100 * (n_cells_orig - n_cells) / n_cells_orig,
+                group_key,
+                group))
 
 def batch_quantification(adata, scale=False,
                          regress_out=None,
