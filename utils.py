@@ -7,7 +7,9 @@ import numpy as np
 import scanpy.api as sc
 import matplotlib.pyplot as plt
 import re
+import os
 import scvelo as scv
+import scanpy as sc
 
 """
 This contains functions for:
@@ -410,7 +412,7 @@ def compare_distr(adata, key, groupby = 'batch', **kwags):
     plt.show()
     
     
-def print_numbers(adata, groupby=None, return_numbers=False):
+def print_numbers(adata, groupby=None, return_numbers=False, save_numbers=None):
     """
     Utility function to print cell numbers per batch
     
@@ -422,17 +424,22 @@ def print_numbers(adata, groupby=None, return_numbers=False):
         Annotated data matrix
     groupby : `str`, optional (defalut: `None`)
         Key to categorical annotation in adata.obs
-    return
+    return_numbers: bool, optional (default: `False`)
+        Whether to return cell and gene numbers
+    save_numbers: None or str, optional (default: `None`)
+        if not None, saved the numbers in the adata object in uns
     """
 
-    if return_numbers:
-        adata_numbers = dict()
+    adata_numbers = dict()
+    adata_numbers['groupby'] = groupby
+    adata_numbers['n_cells_total'] = adata.n_obs
 
     # check wether batch key exists
     if groupby is not None:
         if groupby not in adata.obs.keys():
             raise ValueError('Cannot find the key {!r} in adata.obs'.format(groupby))
         else:
+            adata_numbers['by_group'] = dict()
             # get the levels
             levels = adata.obs[groupby].cat.categories
 
@@ -440,16 +447,58 @@ def print_numbers(adata, groupby=None, return_numbers=False):
             for level in levels:
                 n_cells = adata[adata.obs[groupby] == level].n_obs
                 print('{} cells in batch {}'.format(n_cells, level))
-                if return_numbers:
-                    adata_numbers[level] = n_cells
+                adata_numbers['by_group'][level] = n_cells
     
-    # number of genes
+    # In total
     print('Total: {} cells, {} genes'.\
           format(adata.n_obs, adata.n_vars))
 
+    if save_numbers is not None:
+        adata.uns[save_numbers] = adata_numbers
+
     if return_numbers:
-        adata_numbers['n_cells_total'] = adata.n_obs
         return adata_numbers
+
+
+def print_filtering(adata, key='original_numbers'):
+    """
+
+    :param adata: AnnData Object
+        Annotated Data Matrix
+    :param key: str, optional (default: `"original_numbers"`)
+        Where to find the original cell numbers in the
+        adata.uns field
+    :return: Nothing, just prints
+    """
+    # check whether the original number have been saved
+    if key not in adata.uns.keys():
+        raise ValueError(f'Key `{key}` not found in adata.uns')
+    else:
+        original_numbers = adata.uns[key]
+
+    # print results for total numbers
+    print('In total: ')
+    n_cells = adata.n_obs
+    n_cells_orig = original_numbers['n_cells_total']
+    print('Filtered out {} cells or {:2.2f} %.\n'.format(
+        n_cells_orig - n_cells,
+        100 * (n_cells_orig - n_cells) / n_cells_orig))
+
+    # print results for group specific numbers
+    group_key = original_numbers['groupby']
+    if group_key is not None:
+        print('By {}'.format(group_key))
+        groups = adata.obs[group_key]
+        groups = pd.Series(groups, dtype='category')
+        groups = groups.cat.categories
+        for group in groups:
+            n_cells = adata[adata.obs[group_key] == group].n_obs
+            n_cells_orig = original_numbers['by_group'][group]
+            print('Filtered out {} cells or {:2.2f} % of {} {}.'.format(
+                n_cells_orig - n_cells,
+                100 * (n_cells_orig - n_cells) / n_cells_orig,
+                group_key,
+                group))
 
 def batch_quantification(adata, scale=False,
                          regress_out=None,
@@ -509,6 +558,31 @@ def batch_quantification(adata, scale=False,
         quant_batch(adata, key=batch_quant_key, basis=basis, components=components)
 
     return adata if copy else None
+
+
+def create_dir(dir_type, base_path):
+    """Utility function that manages scanpy directories
+
+    :param dir_type: str
+        Usually 'write', 'data' or 'figures'
+    :param base_path: str
+        Base path that is joined with the dir_type
+    :return: str
+        The joined path
+    """
+
+    path = os.path.join(base_path, dir_type)
+    if not os.path.exists(path):
+        os.mkdir(path)
+        print('Created directory {!r}'.format(path))
+    else:
+        print('Found directory {!r}'.format(path))
+
+    if dir_type == 'figures':
+        sc.settings.figdir = path
+        scv.settings.figdir = path
+
+    return path
 
     
 def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
