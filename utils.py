@@ -7,6 +7,9 @@ import numpy as np
 import scanpy.api as sc
 import matplotlib.pyplot as plt
 import re
+import os
+import scvelo as scv
+import scanpy as sc
 
 """
 This contains functions for:
@@ -508,6 +511,31 @@ def batch_quantification(adata, scale=False,
         quant_batch(adata, key=batch_quant_key, basis=basis, components=components)
 
     return adata if copy else None
+
+
+def create_dir(dir_type, base_path):
+    """Utility function that manages scanpy directories
+
+    :param dir_type: str
+        Usually 'write', 'data' or 'figures'
+    :param base_path: str
+        Base path that is joined with the dir_type
+    :return: str
+        The joined path
+    """
+
+    path = os.path.join(base_path, dir_type)
+    if not os.path.exists(path):
+        os.mkdir(path)
+        print('Created directory {!r}'.format(path))
+    else:
+        print('Found directory {!r}'.format(path))
+
+    if dir_type == 'figures':
+        sc.settings.figdir = path
+        scv.settings.figdir = path
+
+    return path
 
     
 def corr_ann(adata, obs_keys=['n_counts', 'n_genes'], basis='pca', components=[1, 2]):
