@@ -7,6 +7,7 @@ import numpy as np
 import scanpy.api as sc
 import matplotlib.pyplot as plt
 import re
+import scvelo as scv
 
 """
 This contains functions for:
@@ -949,9 +950,10 @@ def plot_cell_indices(adata, key='group', basis='diffmap', components=[1, 2],
     palette = adata.uns.get(f'{key}_colors', viridis(len(df[key].unique())))
 
     p = figure(title=f'{key}', tools=tools)
-    for k, color in zip(adata.obs[key].cat.categories, palette):
-        data = ColumnDataSource(df[df[key] == k])
-        p.scatter(x='x', y='y', size=10, color=color, legend=str(k), source=data)
+    key_col = adata.obs[key].astype('category') if adata.obs[key].dtype.name != 'category' else  adata.obs[key]
+    for c, color in zip(key_col.cat.categories, palette):
+        data = ColumnDataSource(df[df[key] == c])
+        p.scatter(x='x', y='y', size=10, color=color, legend=str(c), source=data)
 
     p.legend.location = legend_loc
     p.xaxis.axis_label = f'{basis}_{components[0]}'
@@ -1229,3 +1231,65 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
         sleep(20)
 
     return tuple(res)
+
+
+def plot_gene(adata, ax, x, y, type='gene', x_test=None, x_mean=None, x_cov=None, x_grad=None,
+                 scatter_kwgs=None):
+    """Utility function to plot gene expression, velocity and dpt
+       TODO: this is merely a placeholder.
+
+    Parameters
+    --------
+    adata: AnnData Object
+        Annotated Data Frame
+    ax: plt.axes object
+        Axes used for plotting
+    x: np.array
+        Temporal ordering
+    y: np.array
+        Expression values
+    type: str, optional (default: `"s"`)
+        What is being plotted. Gene expression (gene) or velocity (velocity)
+    x_test: np.array, optional (default: `None`)
+        Grid of values for testing
+    x_mean: np.array, optional (default: `None`)
+        Smoothed expression values
+    x_cov: np.array, optional (default: `None`)
+        Covariance matrix for smoothed expression
+    x_grad: np.array, optional (default: `None`)
+        Derivative of gene expression
+    gene_name: str, optional (default: `" "`)
+        Name of the gene for plotting
+    scatter_kwgs: None or dict, optional (default: `None`)
+        keyword arguments for scv.pl.scatter
+
+    Returns
+    --------
+    Nothing, just plots.
+    """
+
+    # basic scatter plot
+    if scatter_kwgs is not None:
+        ax = scv.pl.scatter(adata, x=x, y=y, ax=ax, show=False, **scatter_kwgs)
+    else:
+        ax = scv.pl.scatter(adata, x=x, y=y, ax=ax, show=False)
+    ax.set_title(" ")
+
+    if x_test is not None:
+        # add smoothed expression valued
+        if x_mean is not None:
+            ax.plot(x_test, x_mean, '-', color='orange', lw=3,
+                    label='Smoothed {} expression values'.format(type))
+            # add covariance
+            if x_cov is not None:
+                ax.fill_between(x_test.flatten(), x_mean - np.sqrt(np.diag(x_cov)),
+                                x_mean + np.sqrt(np.diag(x_cov)),
+                                alpha=0.5, color='k')
+        # add the derivative
+        if x_grad is not None:
+            ax.plot(x_test, x_grad, '--', color='orange', lw=3,
+                    label='Derivative of gene expression')
+
+    ax.set_ylabel('{} expression'.format(type), fontsize=10)
+    ax.set_xticks([])
+    plt.legend(fontsize=10)
