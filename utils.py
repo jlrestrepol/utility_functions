@@ -10,6 +10,7 @@ import re
 import os
 import scvelo as scv
 import scanpy as sc
+from sklearn.gaussian_process.kernels import *
 
 """
 This contains functions for:
@@ -1305,6 +1306,81 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
         sleep(20)
 
     return tuple(res)
+
+
+def smooth_expresion(x, y, n_points=100, mode='gp', kernel_params=dict(), kernel_default_params=dict(),
+                     kernel_expr=None, suppress=False, **opt_params):
+
+    import ast
+    import operator as op
+
+    def _eval(node):
+        if isinstance(node, ast.Num):
+            return node.n
+
+        if isinstance(node, ast.Name):
+            if not suppress and node.id not in kernel_params:
+                raise ValueError(f'''Error while parsing `{kernel_expr}`: `{node.id}` is not a valid key in kernel_params. To use RBF kernel with default parameters, specify suppress=True.
+                                 ''')
+            params = kernel_params.get(node.id, kernel_default_params)
+            kernel_type = params.pop('type', 'rbf')
+            return kernels[kernel_type](**params)
+
+        if isinstance(node, ast.BinOp):
+            return operators[type(node.op)](_eval(node.left), _eval(node.right))
+
+        if isinstance(node, ast.UnaryOp):
+            return operators[type(node.op)](_eval(node.operand))
+
+        raise TypeError(node)
+
+
+    operators = {ast.Add : op.add,
+                 ast.Mult: op.mul,
+                 ast.Pow :op.pow}
+    kernels = dict(const=ConstantKernel,
+                   white=WhiteKernel,
+                   rbf=RBF,
+                   mat=Matern,
+                   rq=RationalQuadratic,
+                   esn=ExpSineSquared,
+                   dp=DotProduct,
+                   pw=PairwiseKernel)
+
+    x_test = np.linspace(0, 1, n_points)[:, None]
+
+    if mode == 'krr':
+        from sklearn.kernel_ridge import KernelRidge
+        gamma = opt_params.pop('gamma', None)
+
+        if gamma is None:
+            length_scale = kernel_default_params.get('length_scale', 0.2)
+            gamma = 1 / (2 * length_scale ** 2)
+            print(f'Smoothing using KRR with length_scale: {length_scale}.')
+
+        model = KernelRidge(gamma=gamma, **opt_params)
+        model.fit(x, y)
+
+        return model.predict(x_test), None
+
+    if mode == 'gp':
+        from sklearn.gaussian_process import GaussianProcessRegressor
+
+        if kernel_expr is None:
+            assert len(kernel_params) == 1
+            kernel_exp, = kernel_params.keys()
+        kernel = _eval(ast.parse(kernel_expr, mode='eval').body)
+        alpha = opt_params.pop('alpha', None)
+        if alpha is None:
+            alpha = np.std(y) 
+        optimizer = opt_params.pop('optimizer', None)
+        model = GaussianProcessRegressor(kernel=kernel, alpha=alpha, optimizer=None, **opt_params)
+        model.fit(x, y)
+
+        return model.predict(x_test, return_cov=True)
+
+    raise ValueError(f'Uknown type: `{type}`.')
+
 
 def plot_dpt(adata):
     pass
