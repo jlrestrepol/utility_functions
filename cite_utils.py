@@ -8,7 +8,7 @@ import scanpy.api as sc
 #%% Normalisation and Scaling
 
 # normalise per cell
-def normalise_proteins(adata, prot_key = 'prot'):
+def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
     """
     Normalises the protein counts using centered-log ration (clr)
     
@@ -26,12 +26,15 @@ def normalise_proteins(adata, prot_key = 'prot'):
     else:
         raise ValueError('No field \'{}\' found in adata.obsm'.format(prot_key))
     
+    if method != 'counts': # This is obviously trivial in this case but allows us to generalize to more than one method if wanted
+        raise ValueError('Select method "counts" ')
+
+    if method == 'counts':
+        counts = adata.obs['n_counts_0']
+        X = X / counts[:, None]
+
     # add one pseudocount
     X = X + 1
-    # compute the geometric mean
-    gm = scipy.stats.mstats.gmean(X, axis = 1)
-    # normalise with this
-    X = np.diag(1/gm) @ X
     # log transform
     X = np.log(X)
     
