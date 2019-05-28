@@ -10,7 +10,7 @@ import scanpy.api as sc
 # normalise per cell
 def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
     """
-    Normalises the protein counts using centered-log ration (clr) or normalisation to the counts
+    Normalises the protein counts using centered-log ratio (clr) or to the counts (counts)
     
     Parameters
     --------
@@ -34,10 +34,7 @@ def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
     if method == 'counts':
         counts = adata.obs['n_counts_0']
         X = X / counts[:, None]
-        # add one pseudocount
-        X = X + 1
-        # log transform
-        X = np.log(X)
+
 
     if method == 'clr':
         # add one pseudocount
