@@ -28,8 +28,8 @@ def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
     else:
         raise ValueError('No field \'{}\' found in adata.obsm'.format(prot_key))
     
-    if method not in ['counts', 'clr']: 
-        raise ValueError('Select a valid method: "counts" or "clr"')
+    if method not in ['counts', 'clr', 'log1p']: 
+        raise ValueError('Select a valid method: "counts", "clr" or "log1p"')
 
     if method == 'counts':
         counts = adata.obs['n_counts_0']
@@ -45,6 +45,12 @@ def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
         X = np.diag(1/gm) @ X
         # log transform
         X = np.log(X)
+
+    if method == 'log1p':
+        # add one pseudocount just to the protein data
+        X[:, :-3] += 1 
+        # log transform
+        X[:, :-3] = np.log(X[:, :-3])
     
     # save in the AnnData object
     adata.obsm[prot_key] = X
