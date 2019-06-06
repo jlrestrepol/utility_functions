@@ -128,8 +128,11 @@ class Cache():
                 return True
 
             except:
-                print(traceback.format_exc())
-                print('Error obtaining the cache; recomputing the values.')
+                if not (self.cache_dir / fname).is_file():
+                    print(traceback.format_exc())
+                    print('Error obtaining the cache; recomputing the values.')
+                else:
+                    print(f'No cache found; recomputing the values.')
                 return False
 
         if len(args) == 1:
