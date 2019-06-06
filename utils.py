@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
 from bokeh.palettes import Set1, Set2, Set3
+from sklearn.gaussian_process.kernels import *
+from pathlib import Path
+from collections import Iterable
 
+import anndata
 import pandas as pd
 import numpy as np
 import scanpy.api as sc
@@ -10,6 +14,8 @@ import re
 import os
 import scvelo as scv
 import scanpy as sc
+import pickle
+import traceback
 
 """
 This contains functions for:
@@ -52,6 +58,142 @@ _inter_hist_js_code="""
 
     source.change.emit();
 """
+
+
+
+class Cache():
+
+    def __init__(self, cache_dir):
+        self.cache_dir = Path(cache_dir)
+
+    def _create_cache_fn(self, *args, default_fname=None):
+
+
+        def helper(adata, fname=None, recache=False, verbose=True):
+
+
+            def _get_val(obj, keys):
+                if isinstance(keys, str):
+                    keys = (keys, )
+
+                for k in keys:
+                    obj = obj[k]
+                return obj
+
+            try:
+
+                if fname is None:
+                    fname = default_fname
+
+                if not fname.endswith('.pkl'):
+                    fname += '.pkl'
+
+                if (self.cache_dir / fname).is_file() and not recache:
+                    if verbose:
+                        print(f'Loading data from: `{fname}`.')
+                    with open(self.cache_dir / fname, 'rb') as fin:
+                        attrs_keys, vals = zip(*pickle.load(fin))
+
+                    #print(attr_keys)
+                    #assert attrs_keys == tuple(zip(attrs, keys))
+
+                    for (attr, key), val in zip(attrs_keys, vals):
+                        if hasattr(adata, attr):
+                            if isinstance(key, str):
+                                key = (key, )
+
+                            at = getattr(adata, attr)
+                            msg = [f'adata.{attr}']
+                            for k in key[:-1]:
+                                if k not in at.keys():
+                                    at[k] = dict()
+                                at = at[k]
+                                msg.append(f'[{k}]')
+
+                            if key[-1] in at.keys() and verbose:
+                                print(f'Warning: `{"".join(msg)}` already contains key: `{key[-1]}`.')
+                            at[key[-1]] = val
+                        else:
+                            assert key is None
+                            setattr(adata, attr, value)
+
+                else:
+                    if verbose:
+                        print(f'Caching data to: `{fname}`.')
+                    data = [((attr, (key, ) if isinstance(key, str) else tuple(key)),
+                             _get_val(getattr(adata, attr), key)) for attr, key in zip(attrs, keys)]
+                    with open(self.cache_dir / fname, 'wb') as fout:
+                        pickle.dump(data, fout)
+
+                return True
+
+            except:
+                print(traceback.format_exc())
+                print('Error obtaining the cache; recomputing the values.')
+                return False
+
+        if len(args) == 1:
+            collection = args[0]
+            if isinstance(collection, dict):
+                attrs = tuple(collection.keys())
+                keys = tuple(collection.values())
+
+                pat = re.compile(r'_cache\d+$')
+                attrs = tuple(pat.sub('', a) for a in attrs)
+
+                return helper
+
+            if isinstance(collection, Iterable) and len(next(iter(collection))) == 2:
+                attrs, keys = tuple(zip(*collection))
+
+                return helper
+
+        assert len(args) == 2
+        attrs, keys = args
+
+        if isinstance(attrs, str):
+            attrs = (attrs, )
+        if isinstance(keys, str):
+            keys = (keys, )
+
+        return helper
+
+
+    def cache(self, *args, **kwargs):
+        """
+        Create a caching function.
+
+        :param: keys_attributes (dict, list(tuple))
+        :param: default_fname
+        """
+
+        def _run(callback, *args, **kwargs):
+            """
+            :param: callback
+            :param: *args
+            :param: **kwargs (fname, force, verbose)
+            """
+
+            fname = kwargs.pop('fname', None)
+            force = kwargs.pop('force', False)
+            verbose = kwargs.pop('verbose', True)
+
+            adata = args[0] if isinstance(args[0], anndata.AnnData) else kwargs.get('adata')
+            assert isinstance(adata, anndata.AnnData)
+
+            if force:
+                res = callback(*args, **kwargs)
+                cache_fn(adata, fname, True, verbose=verbose)
+                return res
+
+            if not cache_fn(adata, fname, False, verbose):
+                res = callback(*args, **kwargs)
+                cache_fn(adata, fname, True, verbose=False)
+                return res
+
+        cache_fn = self._create_cache_fn(*args, **kwargs)
+        return _run
+
 
 def score_cell_cycle(adata, path, gene_symbols = 'none'):
     """
