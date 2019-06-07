@@ -162,8 +162,8 @@ class Cache():
 
             except Exception as e:
                 if not isinstance(e, FileNotFoundError):
-                    print(traceback.format_exc())
-                    print('Error obtaining the cache; recomputing the values.')
+                    if recache:
+                        print(traceback.format_exc())
                 else:
                     print(f'No cache found; recomputing the values.')
                 return False
@@ -238,6 +238,7 @@ class Cache():
                 return res
 
             if not cache_fn(adata, fname, False, verbose):
+                print('Recomputing values.')
                 res = callback(*args, **kwargs)
                 cache_fn(res if copy else adata, fname, True, verbose=False)
                 return res
