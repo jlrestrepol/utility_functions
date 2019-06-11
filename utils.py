@@ -441,12 +441,14 @@ def print_numbers(adata, groupby=None, return_numbers=False, save_numbers=None):
         else:
             adata_numbers['by_group'] = dict()
             # get the levels
-            levels = adata.obs[groupby].cat.categories
+            groups = adata.obs[groupby]
+            groups = pd.Series(groups, dtype='category')
+            levels = groups.cat.categories
 
             # print number of cell per batch
             for level in levels:
                 n_cells = adata[adata.obs[groupby] == level].n_obs
-                print('{} cells in batch {}'.format(n_cells, level))
+                print('{} cells in {} {}'.format(n_cells, groupby, level))
                 adata_numbers['by_group'][level] = n_cells
     
     # In total
@@ -472,7 +474,7 @@ def print_filtering(adata, key='original_numbers'):
     """
     # check whether the original number have been saved
     if key not in adata.uns.keys():
-        raise ValueError('Key {!r} not found in adata.uns')
+        raise ValueError('Key {!r} not found in adata.uns'.format(key))
     else:
         original_numbers = adata.uns[key]
 
@@ -578,7 +580,8 @@ def create_dir(dir_type, base_path):
     else:
         print('Found directory {!r}'.format(path))
 
-    if dir_type == 'figures':
+
+    if dir_type.find('figure') != -1:
         sc.settings.figdir = path
         scv.settings.figdir = path
 
