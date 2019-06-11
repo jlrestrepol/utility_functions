@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
 from bokeh.palettes import Set1, Set2, Set3
+from sklearn.gaussian_process.kernels import *
+from pathlib import Path
+from collections import Iterable
 
+import anndata
 import pandas as pd
 import numpy as np
 import scanpy.api as sc
@@ -10,6 +14,8 @@ import re
 import os
 import scvelo as scv
 import scanpy as sc
+import pickle
+import traceback
 
 """
 This contains functions for:
@@ -52,6 +58,195 @@ _inter_hist_js_code="""
 
     source.change.emit();
 """
+
+
+
+class Cache():
+
+    def __init__(self, cache_dir):
+        self._cache_dir = Path(cache_dir)
+        setattr(self, 'pca', self.cache(dict(obsm='X_pca',
+                                             varm='PCs',
+                                             uns=['pca', 'variance_ratio'],
+                                             uns_cache1=['pca', 'variance']),
+                                        default_fname='pca',
+                                        default_fn=sc.pp.pca))
+        setattr(self, 'neighbors', self.cache(dict(uns='neighbors'),
+                default_fname='neighs',
+                default_fn=sc.pp.neighbors))
+        setattr(self, 'louvain', self.cache(dict(obs='louvain'),
+                default_fname='louvain',
+                default_fn=sc.tl.louvain))
+        setattr(self, 'umap', self.cache(dict(obsm='X_umap'),
+                default_fname='umap',
+                default_fn=sc.tl.umap))
+        setattr(self, 'diffmap', self.cache(dict(obsm='X_diffmap', uns='diffmap_evals', uns_cache1='iroot'),
+                default_fname='diffmap',
+                default_fn=sc.tl.diffmap))
+        setattr(self, 'expression', self.cache(dict(X=None), default_fname='expression'))
+
+    @property
+    def cache_dir(self):
+        return self._cache_dir
+
+    @cache_dir.setter
+    def cache_dir(self, value):
+        if not isinstance(value, Path):
+            value = Path(value)
+
+        if not value.is_dir():
+            warning.warn(f'`{value}` is not a directory.')
+
+        self._cache_dir = value
+
+    def _create_cache_fn(self, *args, default_fname=None):
+
+        def helper(adata, fname=None, recache=False, verbose=True):
+
+            def _get_val(obj, keys):
+                if keys is None:
+                    return obj
+
+                if isinstance(keys, str):
+                    keys = (keys, )
+
+                for k in keys:
+                    obj = obj[k]
+                return obj
+
+            try:
+
+                if fname is None:
+                    fname = default_fname
+
+                if not fname.endswith('.pkl'):
+                    fname += '.pkl'
+
+                if (self.cache_dir / fname).is_file() and not recache:
+                    if verbose:
+                        print(f'Loading data from: `{fname}`.')
+                    with open(self.cache_dir / fname, 'rb') as fin:
+                        attrs_keys, vals = zip(*pickle.load(fin))
+
+                    for (attr, key), val in zip(attrs_keys, vals):
+                        if key is None or isinstance(key, str):
+                            key = (key, )
+
+                        if key[0] is not None:
+                            at = getattr(adata, attr)
+                            msg = [f'adata.{attr}']
+
+                            for k in key[:-1]:
+                                if k not in at.keys():
+                                    at[k] = dict()
+                                at = at[k]
+                                msg.append(f'[{k}]')
+
+                            if verbose and key[-1] in at.keys():
+                                print(f'Warning: `{"".join(msg)}` already contains key: `{key[-1]}`.')
+                            at[key[-1]] = val
+                        else:
+                            if verbose and hasattr(adata, attr):
+                                print(f'Warning: `adata.{attr}` already exists.')
+                            setattr(adata, attr, val)
+
+                else:
+                    if verbose:
+                        print(f'Caching data to: `{fname}`.')
+                    data = [((attr, (key, ) if key is None or isinstance(key, str) else tuple(key)),
+                             _get_val(getattr(adata, attr), key)) for attr, key in zip(attrs, keys)]
+                    with open(self.cache_dir / fname, 'wb') as fout:
+                        pickle.dump(data, fout)
+
+                return True
+
+            except Exception as e:
+                if not isinstance(e, FileNotFoundError):
+                    if recache:
+                        print(traceback.format_exc())
+                else:
+                    print(f'No cache found; recomputing the values.')
+                return False
+
+        if len(args) == 1:
+            collection = args[0]
+            if isinstance(collection, dict):
+                attrs = tuple(collection.keys())
+                keys = tuple(collection.values())
+
+                pat = re.compile(r'_cache\d+$')
+                attrs = tuple(pat.sub('', a) for a in attrs)
+
+                return helper
+
+            if isinstance(collection, Iterable) and len(next(iter(collection))) == 2:
+                attrs, keys = tuple(zip(*collection))
+
+                return helper
+
+        assert len(args) == 2
+        attrs, keys = args
+
+        if isinstance(attrs, str):
+            attrs = (attrs, )
+        if isinstance(keys, str):
+            keys = (keys, )
+
+        return helper
+
+
+    def cache(self, *args, **kwargs):
+        """
+        Create a caching function.
+
+        :param: keys_attributes (dict, list(tuple))
+        :param: default_fname
+        """
+
+        default_fn = kwargs.pop('default_fn', None)
+
+        def _run(*args, **kwargs):
+            """
+            :param: *args
+            :param: **kwargs (fname, force, verbose)
+            """
+
+            fname = kwargs.pop('fname', None)
+            force = kwargs.pop('force', False)
+            verbose = kwargs.pop('verbose', True)
+            copy = kwargs.get('copy', False)
+
+            callback = None
+            if len(args) > 1:
+                callback, *args = args
+
+            if len(args) > 0:
+                adata = args[0] if isinstance(args[0], anndata.AnnData) else kwargs.get('adata')
+            else:
+                adata = kwargs.get('adata')
+
+            assert isinstance(adata, anndata.AnnData), f'Expected `{adata}` to be of type `anndata.AnnData`, got `{type(adata)}`.'
+
+            if callback is None:
+                callback = (lambda *_x, **_y: None) if default_fn is None else default_fn
+
+            assert callable(callback), f'`{callblack}` is not callable.'
+
+            if force:
+                res = callback(*args, **kwargs)
+                cache_fn(res if copy else adata, fname, True, verbose=verbose)
+                return res
+
+            if not cache_fn(adata, fname, False, verbose):
+                print('Recomputing values.')
+                res = callback(*args, **kwargs)
+                cache_fn(res if copy else adata, fname, True, verbose=False)
+                return res
+
+        cache_fn = self._create_cache_fn(*args, **kwargs)
+
+        return _run
+
 
 def score_cell_cycle(adata, path, gene_symbols = 'none'):
     """
@@ -1027,9 +1222,10 @@ def plot_cell_indices(adata, key='group', basis='diffmap', components=[1, 2],
     palette = adata.uns.get(f'{key}_colors', viridis(len(df[key].unique())))
 
     p = figure(title=f'{key}', tools=tools)
-    for k, color in zip(adata.obs[key].cat.categories, palette):
-        data = ColumnDataSource(df[df[key] == k])
-        p.scatter(x='x', y='y', size=10, color=color, legend=str(k), source=data)
+    key_col = adata.obs[key].astype('category') if adata.obs[key].dtype.name != 'category' else  adata.obs[key]
+    for c, color in zip(key_col.cat.categories, palette):
+        data = ColumnDataSource(df[df[key] == c])
+        p.scatter(x='x', y='y', size=10, color=color, legend=str(c), source=data)
 
     p.legend.location = legend_loc
     p.xaxis.axis_label = f'{basis}_{components[0]}'
@@ -1206,7 +1402,8 @@ def simple_de_matching(adata, markers, n_genes=100):
 
 def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', dst_path='',
                              username='user', password='passwd', browser_name='analysis',
-                             adata_fname='cellxgene.h5ad', cfg_fname='cellxgene.config'):
+                             adata_fname='cellxgene.h5ad', cfg_fname='cellxgene.config',
+                             ret=False):
     """
     Create an .h5ad and .config files for the cellxgene browser.
 
@@ -1230,9 +1427,12 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
         Name of the .h5ad file.
     cfg_name: str (default: `"cellxgene.config"`)
         Name of the .config file.
+    ret: bool (default: `False`)
+        Whether to return output statuses for each file transfer.
 
     --------
-    Returns: Tuple(requests.models.Response, requests.models.Response)
+    Returns: if `res` is True, then Tuple(requests.models.Response, requests.models.Response)
+             otherwise None
     Responses corresponding to the creation of the .h5ad and .config files respectively.
     """
 
@@ -1299,11 +1499,75 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
             'type': 'file'
         })
 
+
     res = []
     dst_url= os.path.join(jupyter_url, 'api/contents/', urllib.parse.quote(dst_path))
     
     for fname, data in zip([adata_fname, cfg_fname], [ad_data, cfg_data]):
-        res.append(session.put(os.path.join(dst_url, urllib.parse.quote(fname)), data=data, params={'token': token}, cookies=cookies))
+        res.append(session.put(os.path.join(dst_url, urllib.parse.quote(fname)),
+                               data=data, params={'token': token}, cookies=cookies))
         sleep(20)
 
-    return tuple(res)
+    return tuple(res) if ret else None
+
+
+def plot_gene(adata, ax, x, y, type='gene', x_test=None, x_mean=None, x_cov=None, x_grad=None,
+                 scatter_kwgs=None):
+    """Utility function to plot gene expression, velocity and dpt
+       TODO: this is merely a placeholder.
+
+    Parameters
+    --------
+    adata: AnnData Object
+        Annotated Data Frame
+    ax: plt.axes object
+        Axes used for plotting
+    x: np.array
+        Temporal ordering
+    y: np.array
+        Expression values
+    type: str, optional (default: `"s"`)
+        What is being plotted. Gene expression (gene) or velocity (velocity)
+    x_test: np.array, optional (default: `None`)
+        Grid of values for testing
+    x_mean: np.array, optional (default: `None`)
+        Smoothed expression values
+    x_cov: np.array, optional (default: `None`)
+        Covariance matrix for smoothed expression
+    x_grad: np.array, optional (default: `None`)
+        Derivative of gene expression
+    gene_name: str, optional (default: `" "`)
+        Name of the gene for plotting
+    scatter_kwgs: None or dict, optional (default: `None`)
+        keyword arguments for scv.pl.scatter
+
+    Returns
+    --------
+    Nothing, just plots.
+    """
+
+    # basic scatter plot
+    if scatter_kwgs is not None:
+        ax = scv.pl.scatter(adata, x=x, y=y, ax=ax, show=False, **scatter_kwgs)
+    else:
+        ax = scv.pl.scatter(adata, x=x, y=y, ax=ax, show=False)
+    ax.set_title(" ")
+
+    if x_test is not None:
+        # add smoothed expression valued
+        if x_mean is not None:
+            ax.plot(x_test, x_mean, '-', color='orange', lw=3,
+                    label='Smoothed {} expression values'.format(type))
+            # add covariance
+            if x_cov is not None:
+                ax.fill_between(x_test.flatten(), x_mean - np.sqrt(np.diag(x_cov)),
+                                x_mean + np.sqrt(np.diag(x_cov)),
+                                alpha=0.5, color='k')
+        # add the derivative
+        if x_grad is not None:
+            ax.plot(x_test, x_grad, '--', color='orange', lw=3,
+                    label='Derivative of gene expression')
+
+    ax.set_ylabel('{} expression'.format(type), fontsize=10)
+    ax.set_xticks([])
+    plt.legend(fontsize=10)

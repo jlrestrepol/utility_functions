@@ -7,6 +7,8 @@
 
 # ignore files
 *paths.py
+*.DS_store
+*.gitignore.swp
 
 # ignore files with these extensions
 *.csv

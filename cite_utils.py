@@ -8,9 +8,9 @@ import scanpy.api as sc
 #%% Normalisation and Scaling
 
 # normalise per cell
-def normalise_proteins(adata, prot_key = 'prot'):
+def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
     """
-    Normalises the protein counts using centered-log ration (clr)
+    Normalises the protein counts using centered-log ratio (clr) or to the counts (counts)
     
     Parameters
     --------
@@ -18,6 +18,8 @@ def normalise_proteins(adata, prot_key = 'prot'):
         Annoated data matrix
     prot_key : `str`, optional (default: `"prot"`)
         Key to find the proteins in adata.obsm
+    method: `str`, optional (default: `"counts"`)
+        Normalisation method to use
     
     """
     # check the input
@@ -26,14 +28,29 @@ def normalise_proteins(adata, prot_key = 'prot'):
     else:
         raise ValueError('No field \'{}\' found in adata.obsm'.format(prot_key))
     
-    # add one pseudocount
-    X = X + 1
-    # compute the geometric mean
-    gm = scipy.stats.mstats.gmean(X, axis = 1)
-    # normalise with this
-    X = np.diag(1/gm) @ X
-    # log transform
-    X = np.log(X)
+    if method not in ['counts', 'clr', 'log1p']: 
+        raise ValueError('Select a valid method: "counts", "clr" or "log1p"')
+
+    if method == 'counts':
+        counts = adata.obs['n_counts_0']
+        X = X / counts[:, None]
+
+
+    if method == 'clr':
+        # add one pseudocount
+        X = X + 1
+        # compute the geometric mean
+        gm = scipy.stats.mstats.gmean(X, axis = 1)
+        # normalise with this
+        X = np.diag(1/gm) @ X
+        # log transform
+        X = np.log(X)
+
+    if method == 'log1p':
+        # add one pseudocount just to the protein data
+        X[:, :-3] += 1 
+        # log transform
+        X[:, :-3] = np.log(X[:, :-3])
     
     # save in the AnnData object
     adata.obsm[prot_key] = X
