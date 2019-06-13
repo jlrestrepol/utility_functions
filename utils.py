@@ -16,6 +16,7 @@ import scvelo as scv
 import scanpy as sc
 import pickle
 import traceback
+import warnings
 
 """
 This contains functions for:
@@ -95,7 +96,7 @@ class Cache():
             value = Path(value)
 
         if not value.is_dir():
-            warning.warn(f'`{value}` is not a directory.')
+            warnings.warn(f'`{value}` is not a directory.')
 
         self._cache_dir = value
 
