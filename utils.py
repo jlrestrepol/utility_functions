@@ -285,7 +285,8 @@ class Cache():
             assert callable(callback), f'`{callblack}` is not callable.'
 
             if force:
-                print('Recomputing values.')
+                if verbose:
+                    print('Recomputing values.')
                 res = callback(*args, **kwargs)
                 cache_fn(res if copy else adata, fname, True, verbose=verbose)
                 return res
@@ -295,7 +296,8 @@ class Cache():
                 adata = adata.copy()
 
             if not cache_fn(adata, fname, False, verbose):
-                print('Computing values.')
+                if verbose:
+                    print('Computing values.')
                 res = callback(*args, **kwargs)
                 ret = cache_fn(res if copy else adata, fname, True, verbose=False)
                 assert ret, 'Caching failed.'
@@ -1568,7 +1570,7 @@ def create_cellxgene_browser(adata, token, jupyter_url='http://localhost:8888', 
     for fname, data in zip([adata_fname, cfg_fname], [ad_data, cfg_data]):
         res.append(session.put(os.path.join(dst_url, urllib.parse.quote(fname)),
                                data=data, params={'token': token}, cookies=cookies))
-        sleep(20)
+        # sleep(1)
 
     return tuple(res) if ret else None
 
