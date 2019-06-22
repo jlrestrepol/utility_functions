@@ -91,6 +91,16 @@ class Cache():
                                                               default_fname='pca_arr',
                                                               default_fn=sc.pp.pca),
                                                    ret_attr=dict(obsm='X_pca')))
+        setattr(self, 'paga', self.cache(dict(uns=['paga', 'connectivities'],
+                                              uns_cache1=['paga','connectivities_tree'],
+                                              uns_cache2=['paga', 'groups'],
+                                              uns_cache3=['paga', 'pos']),
+                                         default_fn=sc.tl.paga,
+                                         default_fname='paga'))
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(dir='{self._cache_dir}', ext='{self._ext}')"
 
 
     def _wrap_as_adata(self, fn, *, ret_attr):
