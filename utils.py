@@ -64,6 +64,7 @@ _inter_hist_js_code="""
 
 class Cache():
 
+
     def __init__(self, cache_dir, ext='.pickle', make_dir=True):
         if make_dir and not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
@@ -93,6 +94,7 @@ class Cache():
         setattr(self, 'pcarr', self._wrap_as_adata(self.cache(dict(obsm='X_pca'),
                                                                    default_fname='pca_arr',
                                                                    default_fn=sc.pp.pca),
+
                                                    ret_attr=dict(obsm='X_pca')))
         setattr(self, 'paga', self.cache(dict(uns=['paga', 'connectivities'],
                                               uns_cache1=['paga','connectivities_tree'],
@@ -124,7 +126,6 @@ class Cache():
                                                     uns='draw_graph'),
                                                     default_fn=sc.tl.draw_graph,
                                                     default_fname='draw_graph'))
-
 
     def __repr__(self):
         return f"{self.__class__.__name__}(dir='{self._cache_dir}', ext='{self._ext}')"
@@ -234,8 +235,10 @@ class Cache():
                 if recache:
                     if verbose:
                         print(f'Caching data to: `{fname}`.')
+
                     data = [((attr, (key, ) if key is None or isinstance(key, str) else key),
                               _get_val(getattr(adata, attr), key)) for attr, key in map(lambda a_k: (a_k[0], _convert_key(*a_k)), zip(attrs, keys))]
+
                     with open(self.cache_dir / fname, 'wb') as fout:
                         pickle.dump(data, fout)
 
@@ -372,6 +375,7 @@ class Cache():
                     print('Computing values.')
                 res = callback(*args, **kwargs)
                 ret = cache_fn(res if copy else adata, fname, True, False, *args, **kwargs)
+
                 assert ret, 'Caching failed.'
 
                 return res
