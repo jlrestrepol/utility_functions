@@ -98,24 +98,24 @@ class Cache():
                                          default_fn=sc.tl.paga,
                                          default_fname='paga'))
 
-        settattr(self, 'moments', self.cache(dict(uns='pca',
-                                                  uns_cache1='neighbors',
-                                                  obsm='X_pca',
-                                                  varm='PCs',
-                                                  layers='Ms',
-                                                  layers_cache1='Mu'),
-                                             default_fn=scv.tl.moments,
-                                             default_fname='moments'))
-        settattr(self, 'velocity', self.cache(dict(var='velocity_gamma',
-                                                   var_cache1='velocity_r2',
-                                                   var_cache2='velocity_genes',
-                                                   layers='velocity'),
-                                               default_fn=scv.tl.velocity,
-                                               default_fname='velo'))
-        settattr(self, 'velocity_graph', self.cache(dict(uns='velocity_graph',
-                                                         uns_cache1='velocity_graph_neg'),
-                                                    default_fn=scv.tl.velocity_graph,
-                                                    default_fname='velo_graph'))
+        setattr(self, 'moments', self.cache(dict(uns='pca',
+                                                 uns_cache1='neighbors',
+                                                 obsm='X_pca',
+                                                 varm='PCs',
+                                                 layers='Ms',
+                                                 layers_cache1='Mu'),
+                                            default_fn=scv.tl.moments,
+                                            default_fname='moments'))
+        setattr(self, 'velocity', self.cache(dict(var='velocity_gamma',
+                                                  var_cache1='velocity_r2',
+                                                  var_cache2='velocity_genes',
+                                                  layers='velocity'),
+                                              default_fn=scv.tl.velocity,
+                                              default_fname='velo'))
+        setattr(self, 'velocity_graph', self.cache(dict(uns='velocity_graph',
+                                                        uns_cache1='velocity_graph_neg'),
+                                                   default_fn=scv.tl.velocity_graph,
+                                                   default_fname='velo_graph'))
 
 
     def __repr__(self):
