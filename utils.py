@@ -104,7 +104,7 @@ class Cache():
                                                  varm='PCs',
                                                  layers='Ms',
                                                  layers_cache1='Mu'),
-                                            default_fn=scv.tl.moments,
+                                            default_fn=scv.pp.moments,
                                             default_fname='moments'))
         setattr(self, 'velocity', self.cache(dict(var='velocity_gamma',
                                                   var_cache1='velocity_r2',
