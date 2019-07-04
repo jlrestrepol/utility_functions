@@ -6,7 +6,7 @@ import scanpy.api as sc
 import scipy.io
 import anndata
 
-def import_data(data_p1, data_p2):
+def import_data(data_p1, data_p2, create = True):
     """
     Utility funciton to import both samples together with proteins.
     
@@ -20,7 +20,9 @@ def import_data(data_p1, data_p2):
     adata: AnnData Object
     """
 
-     # Genomic Data
+    if not create:
+        path = '../data_update_cite_seq/tec_cite_h5_2019jun18'
+        return sc.read_h5ad(path + '/adata.h5') 
 
     adata_list = []
     for d in [data_p1, data_p2]:
