@@ -94,16 +94,13 @@ class Cache():
         setattr(self, 'pcarr', self._wrap_as_adata(self.cache(dict(obsm='X_pca'),
                                                                    default_fname='pca_arr',
                                                                    default_fn=sc.pp.pca),
-
-                                                   ret_attr=dict(obsm='X_pca')))
+                                                                ret_attr=dict(obsm='X_pca')))
         setattr(self, 'paga', self.cache(dict(uns=['paga', 'connectivities'],
                                               uns_cache1=['paga','connectivities_tree'],
                                               uns_cache2=['paga', 'groups'],
                                               uns_cache3=['paga', 'pos']),
                                          default_fn=sc.tl.paga,
                                          default_fname='paga'))
-
-        # this caches also the values for PCA and neighbors
         setattr(self, 'moments', self.cache(dict(uns='pca',
                                                  uns_cache1='neighbors',
                                                  obsm='X_pca',
@@ -126,6 +123,7 @@ class Cache():
                                                     uns='draw_graph'),
                                                     default_fn=sc.tl.draw_graph,
                                                     default_fname='draw_graph'))
+
 
     def __repr__(self):
         return f"{self.__class__.__name__}(dir='{self._cache_dir}', ext='{self._ext}')"
