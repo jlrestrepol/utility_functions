@@ -1035,6 +1035,12 @@ def cluster_distr(adata, cluster_key = 'louvain', batch_key = 'batch', eps = 0.4
         if entropy_cluster <= eps:
             print('Warning: Cluster {} has a very uneven batch assignment.'.format(cluster))
     batch_distr['entropy'] = np.round(en, 2)
+
+    # proportion of cells in each batch
+    b0 = sum(adata.obs[batch_key] == batches[0])
+    b1 = sum(adata.obs[batch_key] == batches[1])
+    batch_distr['n_batch_0/n_batch_1'] = (b0/b1) * np.ones(clusters.shape[0])
+
     
     
     return batch_distr
