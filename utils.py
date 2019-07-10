@@ -1088,7 +1088,7 @@ def cluster_distr(adata, cluster_key = 'louvain', batch_key = 'batch', eps = 0.4
     b1 = sum(adata.obs[batch_key] == batches[1])
     prop_ds = b0/b1
     prop_cluster = batch_distr['perc_' + batches[0]] / batch_distr['perc_' + batches[1]]
-    batch_distr['deviation b0/b1'] = np.round( np.abs(prop_ds - prop_cluster)/prop_ds , 2)
+    batch_distr['relative error b0/b1'] = np.round( np.abs(prop_ds - prop_cluster)/prop_ds , 2)
 
     
     

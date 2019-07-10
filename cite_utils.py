@@ -88,11 +88,14 @@ def import_data(data_p1, data_p2, create = True):
     adata.obs['n_counts_0'] = scipy.sparse.csr_matrix.sum(adata.X, axis = 1) # Number of counts in each cell
     adata.obs['n_genes_0'] = scipy.sparse.csr_matrix.sum(adata.X>0, axis = 1) # Number of genes in each cell
     adata.var['n_cells_0'] =  np.sum(adata.X>0, axis = 0).T # Number of cells where the gene is expressed
-    adata.var['n_counts_0'] = np.sum(adata.X, axis = 0).T # Number of counts of each gene across all cells
+    adata.var['n_counts_gene'] = np.sum(adata.X, axis = 0).T # Number of counts of each gene across all cells
 
     # add some protein annotations
     adata.obs['n_proteins'] = np.sum(adata.obsm['prot'][:, :-1] > 0, axis = 1)
     adata.obs['unmapped'] = adata.obsm['prot'][:, -1]
+
+    #write h5 file
+    adata.write('../data_update_cite_seq/tec_cite_h5_2019jun18/adata.h5')
 
     return adata
     
