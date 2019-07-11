@@ -186,7 +186,7 @@ class Cache():
                 if keys is None:
                     return obj
 
-                if isinstance(keys, str):
+                if isinstance(keys, str) or not isinstance(keys, Iterable):
                     keys = (keys, )
 
                 for k in keys:
@@ -194,9 +194,17 @@ class Cache():
 
                 return obj
 
-            def _re_to_str(attr, pat):
-                # this needs to return a tuple
-                return (next(filter(pat.match, getattr(adata, attr).keys())), )
+            def _convert_key(attr, key):
+                if key is None or isinstance(key, str):
+                    return key
+
+                if isinstance(key, re._pattern_type):
+                    return next(filter(key.match, getattr(adata, attr).keys()))
+
+                assert isinstance(key, Iterable)
+
+                # converting to tuple because it's hashable
+                return tuple(key)
 
             try:
 
@@ -209,8 +217,8 @@ class Cache():
                 if recache:
                     if verbose:
                         print(f'Caching data to: `{fname}`.')
-                    data = [((attr, (key, ) if key is None or isinstance(key, str) else (_re_to_str(attr, key) if isinstance(key, re._pattern_type) else tuple(key))),
-                             _get_val(getattr(adata, attr), key)) for attr, key in zip(attrs, keys)]
+                    data = [((attr, (key, ) if key is None or isinstance(key, str) else key),
+                              _get_val(getattr(adata, attr), key)) for attr, key in map(lambda a_k: (a_k[0], _convert_key(*a_k)), zip(attrs, keys))]
                     with open(self.cache_dir / fname, 'wb') as fout:
                         pickle.dump(data, fout)
 
