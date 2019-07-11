@@ -195,7 +195,8 @@ class Cache():
                 return obj
 
             def _re_to_str(attr, pat):
-                return next(filter(pat.match, getattr(adata, attr).keys()))
+                # this needs to return a tuple
+                return (next(filter(pat.match, getattr(adata, attr).keys())), )
 
             try:
 
