@@ -116,6 +116,10 @@ class Cache():
                                                         uns_cache1='velocity_graph_neg'),
                                                    default_fn=scv.tl.velocity_graph,
                                                    default_fname='velo_graph'))
+        setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_.+$'),
+                                                    uns='draw_graph'),
+                                                    default_fn=sc.tl.draw_graph,
+                                                    default_fname='draw_graph'))
 
 
     def __repr__(self):
@@ -190,6 +194,9 @@ class Cache():
 
                 return obj
 
+            def _re_to_str(attr, pat):
+                return next(filter(pat.match, getattr(adata, attr).keys()))
+
             try:
 
                 if fname is None:
@@ -201,7 +208,7 @@ class Cache():
                 if recache:
                     if verbose:
                         print(f'Caching data to: `{fname}`.')
-                    data = [((attr, (key, ) if key is None or isinstance(key, str) else tuple(key)),
+                    data = [((attr, (key, ) if key is None or isinstance(key, str) else (_re_to_str(attr, key) if isinstance(key, re._pattern_type) else tuple(key))),
                              _get_val(getattr(adata, attr), key)) for attr, key in zip(attrs, keys)]
                     with open(self.cache_dir / fname, 'wb') as fout:
                         pickle.dump(data, fout)
