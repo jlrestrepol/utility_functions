@@ -116,8 +116,8 @@ class Cache():
                                                   layers='velocity'),
                                               default_fn=scv.tl.velocity,
                                               default_fname='velo'))
-        setattr(self, 'velocity_graph', self.cache(dict(uns=r'(.+)_graph$',
-                                                        uns_cache1='(.+)_graph_neg$'),
+        setattr(self, 'velocity_graph', self.cache(dict(uns=re.compile(r'(.+)_graph$'),
+                                                        uns_cache1=re.compile('(.+)_graph_neg$')),
                                                    default_fn=scv.tl.velocity_graph,
                                                    default_fname='velo_graph'))
         setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_(.+)$'),
