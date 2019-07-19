@@ -64,8 +64,11 @@ _inter_hist_js_code="""
 
 class Cache():
 
-    def __init__(self, cache_dir, ext='.pickle'):
-        self._cache_dir = Path(cache_dir)
+    def __init__(self, cache_dir, ext='.pickle', make_dir=True):
+        if make_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        self.cache_dir = cache_dir
         self._ext = ext
 
         setattr(self, 'pca', self.cache(dict(obsm='X_pca',
@@ -98,6 +101,7 @@ class Cache():
                                          default_fn=sc.tl.paga,
                                          default_fname='paga'))
 
+        # this caches also the values for PCA and neighbors
         setattr(self, 'moments', self.cache(dict(uns='pca',
                                                  uns_cache1='neighbors',
                                                  obsm='X_pca',
@@ -112,8 +116,8 @@ class Cache():
                                                   layers='velocity'),
                                               default_fn=scv.tl.velocity,
                                               default_fname='velo'))
-        setattr(self, 'velocity_graph', self.cache(dict(uns='velocity_graph',
-                                                        uns_cache1='velocity_graph_neg'),
+        setattr(self, 'velocity_graph', self.cache(dict(uns=r'.+_graph$',
+                                                        uns_cache1='.+_graph_neg$'),
                                                    default_fn=scv.tl.velocity_graph,
                                                    default_fname='velo_graph'))
         setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_.+$'),
@@ -173,7 +177,9 @@ class Cache():
         if not isinstance(value, Path):
             value = Path(value)
 
-        if not value.is_dir():
+        if not value.exists():
+            warnings.warn(f'Path `{value}` does not exist.')
+        elif not value.is_dir():
             warnings.warn(f'`{value}` is not a directory.')
 
         self._cache_dir = value
@@ -234,6 +240,14 @@ class Cache():
                     for (attr, key), val in zip(attrs_keys, vals):
                         if key is None or isinstance(key, str):
                             key = (key, )
+
+                        if not hasattr(adata, attr):
+                            if attr == 'obsm': shape = (adata.n_obs, )
+                            elif attr == 'varm': shape = (adata.n_vars, )
+                            else: raise AttributeError('Support only for `.varm` and `.obsm` attributes.')
+
+                            assert len(keys) == 1, 'Multiple keys not allowed in this case.'
+                            setattr(adata, attr, np.empty(shape))
 
                         if key[0] is not None:
                             at = getattr(adata, attr)
