@@ -116,11 +116,11 @@ class Cache():
                                                   layers='velocity'),
                                               default_fn=scv.tl.velocity,
                                               default_fname='velo'))
-        setattr(self, 'velocity_graph', self.cache(dict(uns=r'.+_graph$',
-                                                        uns_cache1='.+_graph_neg$'),
+        setattr(self, 'velocity_graph', self.cache(dict(uns=r'(.+)_graph$',
+                                                        uns_cache1='(.+)_graph_neg$'),
                                                    default_fn=scv.tl.velocity_graph,
                                                    default_fname='velo_graph'))
-        setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_.+$'),
+        setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_(.+)$'),
                                                     uns='draw_graph'),
                                                     default_fn=sc.tl.draw_graph,
                                                     default_fname='draw_graph'))
@@ -186,7 +186,8 @@ class Cache():
 
     def _create_cache_fn(self, *args, default_fname=None):
 
-        def helper(adata, fname=None, recache=False, verbose=True):
+
+        def helper(adata, fname=None, recache=False, verbose=True, *args, **kwargs):
 
             def _get_val(obj, keys):
                 if keys is None:
@@ -205,13 +206,23 @@ class Cache():
                     return key
 
                 if isinstance(key, re._pattern_type):
-                    return next(filter(key.match, getattr(adata, attr).keys()))
+                    km = {key.match(k).groups()[0]:k for k in getattr(adata, attr).keys() if key.match(k) is not None}
+                    res = set(km.keys()) & possible_vals
+
+                    if len(res) == 0:
+                        # default value was not specified during the call
+                        assert len(km) == 1, f'Found ambiguous matches for `{key}` in attribute `{attr}`: `{set(km.keys())}`.'
+                        return tuple(km.values())[0]
+
+                    assert len(res) == 1, f'Found ambiguous matches for `{key}` in attribute `{attr}`: `{res}`.'
+                    return km[res.pop()]
 
                 assert isinstance(key, Iterable)
 
                 # converting to tuple because it's hashable
                 return tuple(key)
 
+            possible_vals = set(args) | set(kwargs.values())
             try:
 
                 if fname is None:
@@ -347,18 +358,20 @@ class Cache():
                 if verbose:
                     print('Recomputing values.')
                 res = callback(*args, **kwargs)
-                cache_fn(res if copy else adata, fname, True, verbose=verbose)
+                cache_fn(res if copy else adata, fname, True, verbose, *args, **kwargs)
                 return res
 
             # when loading to cache and copy is true, modify the copy
             if copy:
                 adata = adata.copy()
 
-            if not cache_fn(adata, fname, False, verbose):
+            # we need to pass the *args and **kwargs in order to
+            # get the right field when using regexes
+            if not cache_fn(adata, fname, False, verbose, *args, **kwargs):
                 if verbose:
                     print('Computing values.')
                 res = callback(*args, **kwargs)
-                ret = cache_fn(res if copy else adata, fname, True, verbose=False)
+                ret = cache_fn(res if copy else adata, fname, True, False, *args, **kwargs)
                 assert ret, 'Caching failed.'
 
                 return res
