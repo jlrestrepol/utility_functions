@@ -464,7 +464,7 @@ def check_markers(de_genes, marker_genes):
 
 def plot_markers(adata, key, markers = None, basis = 'umap', n_max = 10,
                    use_raw = True, multi_line = True, ignore_case = True,
-                   protein= False, min_cutoff = None, max_cutoff = None, 
+                   protein= False, min_cutoff = None, max_cutoff = None, clustering = 'louvain', 
                    colorbar = False, prot_key = 'prot', prot_names_key = 'prot_names', **kwags):
     """
     This function plots a gridspec which visualises marker genes and a clustering in a given embedding.
@@ -648,7 +648,7 @@ def plot_markers(adata, key, markers = None, basis = 'umap', n_max = 10,
             # add a colorbar
             if colorbar: plt.colorbar()
         elif i == n_genes: #louvain
-            ax = sc.pl.scatter(adata, basis = basis, color = 'louvain', 
+            ax = sc.pl.scatter(adata, basis = basis, color = clustering, 
                                show = False, ax = plt.subplot(gs[i]), 
                                legend_loc = 'right margin') 
         elif i > n_genes: #condition
