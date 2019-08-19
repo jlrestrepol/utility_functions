@@ -130,7 +130,7 @@ def normalise_proteins(adata, prot_key = 'prot', method = 'counts'):
         raise ValueError('Select a valid method: "counts", "clr" or "log1p"')
 
     if method == 'counts':
-        counts = adata.obs['n_counts_0']
+        counts = np.sum(adata.obsm[prot_key], axis=1)
         X = X / counts[:, None]
 
 
