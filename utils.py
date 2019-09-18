@@ -64,8 +64,11 @@ _inter_hist_js_code="""
 
 class Cache():
 
-    def __init__(self, cache_dir, ext='.pickle'):
-        self._cache_dir = Path(cache_dir)
+    def __init__(self, cache_dir, ext='.pickle', make_dir=True):
+        if make_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        self.cache_dir = cache_dir
         self._ext = ext
 
         setattr(self, 'pca', self.cache(dict(obsm='X_pca',
@@ -98,6 +101,7 @@ class Cache():
                                          default_fn=sc.tl.paga,
                                          default_fname='paga'))
 
+        # this caches also the values for PCA and neighbors
         setattr(self, 'moments', self.cache(dict(uns='pca',
                                                  uns_cache1='neighbors',
                                                  obsm='X_pca',
@@ -112,10 +116,14 @@ class Cache():
                                                   layers='velocity'),
                                               default_fn=scv.tl.velocity,
                                               default_fname='velo'))
-        setattr(self, 'velocity_graph', self.cache(dict(uns='velocity_graph',
-                                                        uns_cache1='velocity_graph_neg'),
+        setattr(self, 'velocity_graph', self.cache(dict(uns=re.compile(r'(.+)_graph$'),
+                                                        uns_cache1=re.compile('(.+)_graph_neg$')),
                                                    default_fn=scv.tl.velocity_graph,
                                                    default_fname='velo_graph'))
+        setattr(self, 'draw_graph', self.cache(dict(obsm=re.compile(r'^X_draw_graph_(.+)$'),
+                                                    uns='draw_graph'),
+                                                    default_fn=sc.tl.draw_graph,
+                                                    default_fname='draw_graph'))
 
 
     def __repr__(self):
@@ -169,20 +177,23 @@ class Cache():
         if not isinstance(value, Path):
             value = Path(value)
 
-        if not value.is_dir():
+        if not value.exists():
+            warnings.warn(f'Path `{value}` does not exist.')
+        elif not value.is_dir():
             warnings.warn(f'`{value}` is not a directory.')
 
         self._cache_dir = value
 
     def _create_cache_fn(self, *args, default_fname=None):
 
-        def helper(adata, fname=None, recache=False, verbose=True):
+
+        def helper(adata, fname=None, recache=False, verbose=True, *args, **kwargs):
 
             def _get_val(obj, keys):
                 if keys is None:
                     return obj
 
-                if isinstance(keys, str):
+                if isinstance(keys, str) or not isinstance(keys, Iterable):
                     keys = (keys, )
 
                 for k in keys:
@@ -190,6 +201,28 @@ class Cache():
 
                 return obj
 
+            def _convert_key(attr, key):
+                if key is None or isinstance(key, str):
+                    return key
+
+                if isinstance(key, re._pattern_type):
+                    km = {key.match(k).groups()[0]:k for k in getattr(adata, attr).keys() if key.match(k) is not None}
+                    res = set(km.keys()) & possible_vals
+
+                    if len(res) == 0:
+                        # default value was not specified during the call
+                        assert len(km) == 1, f'Found ambiguous matches for `{key}` in attribute `{attr}`: `{set(km.keys())}`.'
+                        return tuple(km.values())[0]
+
+                    assert len(res) == 1, f'Found ambiguous matches for `{key}` in attribute `{attr}`: `{res}`.'
+                    return km[res.pop()]
+
+                assert isinstance(key, Iterable)
+
+                # converting to tuple because it's hashable
+                return tuple(key)
+
+            possible_vals = set(args) | set(kwargs.values())
             try:
 
                 if fname is None:
@@ -201,8 +234,8 @@ class Cache():
                 if recache:
                     if verbose:
                         print(f'Caching data to: `{fname}`.')
-                    data = [((attr, (key, ) if key is None or isinstance(key, str) else tuple(key)),
-                             _get_val(getattr(adata, attr), key)) for attr, key in zip(attrs, keys)]
+                    data = [((attr, (key, ) if key is None or isinstance(key, str) else key),
+                              _get_val(getattr(adata, attr), key)) for attr, key in map(lambda a_k: (a_k[0], _convert_key(*a_k)), zip(attrs, keys))]
                     with open(self.cache_dir / fname, 'wb') as fout:
                         pickle.dump(data, fout)
 
@@ -218,6 +251,14 @@ class Cache():
                     for (attr, key), val in zip(attrs_keys, vals):
                         if key is None or isinstance(key, str):
                             key = (key, )
+
+                        if not hasattr(adata, attr):
+                            if attr == 'obsm': shape = (adata.n_obs, )
+                            elif attr == 'varm': shape = (adata.n_vars, )
+                            else: raise AttributeError('Support only for `.varm` and `.obsm` attributes.')
+
+                            assert len(keys) == 1, 'Multiple keys not allowed in this case.'
+                            setattr(adata, attr, np.empty(shape))
 
                         if key[0] is not None:
                             at = getattr(adata, attr)
@@ -317,18 +358,20 @@ class Cache():
                 if verbose:
                     print('Recomputing values.')
                 res = callback(*args, **kwargs)
-                cache_fn(res if copy else adata, fname, True, verbose=verbose)
+                cache_fn(res if copy else adata, fname, True, verbose, *args, **kwargs)
                 return res
 
             # when loading to cache and copy is true, modify the copy
             if copy:
                 adata = adata.copy()
 
-            if not cache_fn(adata, fname, False, verbose):
+            # we need to pass the *args and **kwargs in order to
+            # get the right field when using regexes
+            if not cache_fn(adata, fname, False, verbose, *args, **kwargs):
                 if verbose:
                     print('Computing values.')
                 res = callback(*args, **kwargs)
-                ret = cache_fn(res if copy else adata, fname, True, verbose=False)
+                ret = cache_fn(res if copy else adata, fname, True, False, *args, **kwargs)
                 assert ret, 'Caching failed.'
 
                 return res
