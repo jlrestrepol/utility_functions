@@ -21,7 +21,8 @@ def import_data(data_p1, data_p2, create = True):
     """
 
     if not create:
-        path = '../data_update_cite_seq/tec_cite_h5_2019jun18'
+        p1 = data_p1[:data_p1.rfind('/',0,-1)]
+        path = p1+'/tec_cite_h5_2019jun18'
         return sc.read_h5ad(path + '/adata.h5') 
 
     adata_list = []
